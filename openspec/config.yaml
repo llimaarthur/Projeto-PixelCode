@@ -2,33 +2,43 @@ schema: spec-driven
 githubCopilot:
   cloudAgent: true
 
-# Project context (optional)
-# This is shown to AI when creating artifacts.
-# Add your tech stack, conventions, style guides, domain knowledge, etc.
-# Example:
-#   context: |
-#     Tech stack: TypeScript, React, Node.js
-#     We use conventional commits
-#     Domain: e-commerce platform
+context: |
+  Project: PixelCode — Sistema de gestão para barbearia.
 
-# Per-artifact rules (optional)
-# Add custom rules for specific artifacts.
-# Example:
-#   rules:
-#     proposal:
-#       - Keep proposals under 500 words
-#       - Always include a "Non-goals" section
-#     tasks:
-#       - Break tasks into chunks of max 2 hours
+  Domain: Agendamento de serviços de barbearia, com gestão de
+  clientes, funcionários, serviços oferecidos e pagamentos.
 
-# Per-operation guidance (optional)
-# Add advisory guidance for how apply and archive work should be conducted.
-# This is separate from artifact rules above.
-# Example:
-#   operations:
-#     apply:
-#       guidance:
-#         - Keep test summaries concise
-#     archive:
-#       guidance:
-#         - Summarize the archive outcome before finishing
+  Tech stack: Backend em Xano (banco de dados e API REST).
+  Frontend em Reflex (framework Python).
+
+  Architecture: Regras de negócio e persistência ficam no
+  backend (Xano). O frontend não deve ser tratado como
+  mecanismo de segurança.
+
+  Development: O projeto é desenvolvido incrementalmente,
+  utilizando OpenSpec para planejar e revisar cada mudança
+  antes de implementá-la.
+
+  Language: Escrever a documentação do projeto e os artefatos
+  OpenSpec em português brasileiro.
+
+rules:
+  proposal:
+    - Descrever claramente o problema, objetivo e escopo.
+    - Identificar o que está fora do escopo quando necessário.
+
+  specs:
+    - Escrever requisitos verificáveis.
+    - Utilizar cenários para comportamentos relevantes.
+
+  tasks:
+    - Dividir a implementação em tarefas pequenas e verificáveis.
+
+operations:
+  apply:
+    guidance:
+      - Executar verificações relevantes antes de concluir.
+
+  archive:
+    guidance:
+      - Confirmar que a implementação corresponde à especificação.
