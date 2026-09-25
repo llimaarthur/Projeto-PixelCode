@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "skills": {
+    "reflex-docs": {
+      "source": "reflex-dev/agent-skills",
+      "sourceType": "github",
+      "skillPath": "skills/reflex-docs/SKILL.md",
+      "computedHash": "f8c5ebccca75a3a6cbd631d1ba77880c0339291ebdc9e942e7a6f321f055ab41"
+    },
+    "reflex-process-management": {
+      "source": "reflex-dev/agent-skills",
+      "sourceType": "github",
+      "skillPath": "skills/reflex-process-management/SKILL.md",
+      "computedHash": "e072fccd5e402b4ed9f30870f51d0181ca26346a8ec40596338e78b420ff45f9"
+    },
+    "setup-python-env": {
+      "source": "reflex-dev/agent-skills",
+      "sourceType": "github",
+      "skillPath": "skills/setup-python-env/SKILL.md",
+      "computedHash": "a1e6239d7799ffae36824c75fa36c6ef4ee1d567be489cdfcdd7e1cdd90fbad4"
+    }
+  }
+}
