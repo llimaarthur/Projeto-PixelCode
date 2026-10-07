@@ -3,8 +3,8 @@ query "auth/login" verb=POST {
   api_group = "Authentication"
 
   input {
-    email email? filters=trim|lower
-    text password?
+    email email filters=trim|lower
+    text password
   }
 
   stack {
@@ -12,7 +12,7 @@ query "auth/login" verb=POST {
     db.get user {
       field_name = "email"
       field_value = $input.email
-      output = ["id", "created_at", "name", "email", "password", "role"]
+      output = ["id", "name", "email", "password", "role", "status", "must_change_password"]
     } as $user
   
     // Check to make sure a user with that email exists
@@ -32,6 +32,11 @@ query "auth/login" verb=POST {
       error_type = "accessdenied"
       error = "Invalid Credentials."
     }
+
+    precondition ($user.status == "active") {
+      error_type = "accessdenied"
+      error = "Invalid Credentials."
+    }
   
     // Create an authentication token
     security.create_auth_token {
@@ -43,11 +48,21 @@ query "auth/login" verb=POST {
   
     // Create an event log for login
     function.run "Quick Start/log_event" {
-      input = {user_id: $user.id, action: "login", metadata: $user}
+      input = {
+        user_id: $user.id
+        action : "login"
+        metadata: {role: $user.role}
+      }
     } as $event_log
   }
 
-  response = {authToken: $authToken, user_id: $user.id}
+  response = {
+    authToken: $authToken
+    user_id: $user.id
+    name: $user.name
+    role: $user.role
+    must_change_password: $user.must_change_password
+  }
   tags = ["xano:quick-start"]
   guid = "1W8ER2WkNZeSjnSxvAYWXWpbVcQ"
 }

@@ -7,6 +7,10 @@ query "logs/user/my_events" verb=GET {
   }
 
   stack {
+    function.run "Quick Start/enforce_role" {
+      input = {user_id: $auth.id, required_role: "professional"}
+    } as $role_check
+
     // Retrieve event logs for the authenticated user
     db.query event_log {
       where = $db.event_log.user_id == $auth.id

@@ -1,4 +1,4 @@
-// Checks that a user has the appropriate role level. This example sets a hierarchy of roles, and a user must pass the minimum level to execute.
+// Checks that an active professional has the required role level.
 function "Quick Start/enforce_role" {
   input {
     // The ID of the user to check the role for.
@@ -11,20 +11,30 @@ function "Quick Start/enforce_role" {
   stack {
     // Defines a hierarchy of roles with numerical levels.
     var $role_hierarchy {
-      value = {admin: 2, member: 1}
+      value = {admin: 2, professional: 1}
     }
   
     // Retrieve the user's role from the database.
     db.get user {
       field_name = "id"
       field_value = $input.user_id
-      output = ["role"]
+      output = ["role", "status", "must_change_password"]
     } as $user
   
     // Ensure the user exists
     precondition ($user != null) {
       error_type = "inputerror"
       error = "User not found with the provided ID."
+    }
+
+    precondition ($user.status == "active") {
+      error_type = "accessdenied"
+      error = "User account is inactive."
+    }
+
+    precondition ($user.must_change_password == false) {
+      error_type = "accessdenied"
+      error = "Password change is required before using protected operations."
     }
   
     // Extract the user's role from the retrieved user data.

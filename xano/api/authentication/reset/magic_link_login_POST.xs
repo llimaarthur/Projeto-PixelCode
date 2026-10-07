@@ -28,11 +28,17 @@ query "reset/magic-link-login" verb=POST {
         "name"
         "email"
         "role"
+        "status"
         "password_reset.token"
         "password_reset.expiration"
         "password_reset.used"
       ]
     } as $user
+
+    precondition ($user != null && $user.status == "active") {
+      error_type = "unauthorized"
+      error = "Invalid credentials."
+    }
   
     // Validate the UUID matches the hashed value
     security.check_password {
@@ -82,7 +88,7 @@ query "reset/magic-link-login" verb=POST {
       input = {
         user_id : $user.id
         action  : "login_for_password_reset"
-        metadata: $user1
+        metadata: {role: $user1.role}
       }
     } as $event_log
   }

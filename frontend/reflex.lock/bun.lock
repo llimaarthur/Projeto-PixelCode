@@ -5,6 +5,7 @@
     "": {
       "name": "reflex",
       "dependencies": {
+        "@radix-ui/react-form": "0.1.16",
         "@radix-ui/themes": "3.3.0",
         "@react-router/node": "8.4.0",
         "isbot": "5.2.2",

@@ -11,15 +11,20 @@ query "auth/me" verb=GET {
     db.get user {
       field_name = "id"
       field_value = $auth.id
-      output = ["id", "created_at", "name", "email", "role"]
+      output = ["id", "created_at", "name", "email", "phone", "role", "status", "must_change_password"]
     } as $user
+
+    precondition ($user.status == "active") {
+      error_type = "accessdenied"
+      error = "User account is inactive."
+    }
   
     // Create an event log for get user record
     function.run "Quick Start/log_event" {
       input = {
         user_id : $user.id
         action  : "get_auth_user"
-        metadata: $user
+        metadata: {role: $user.role}
       }
     } as $event_log
   }

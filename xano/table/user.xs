@@ -6,13 +6,21 @@ table user {
     int id
     timestamp created_at?=now
     text name filters=trim
-    email? email filters=trim|lower
-    password? password filters=min:8|minAlpha:1|minDigit:1
+    email email filters=trim|lower
+    text phone filters=trim
+    text cpf filters=trim
+    password password filters=min:8|minAlpha:1|minDigit:1
   
     // The role of the user within their company (e.g., 'admin', 'member').
-    enum role? {
-      values = ["admin", "member"]
+    enum role {
+      values = ["admin", "professional"]
     }
+
+    enum status?=active {
+      values = ["active", "inactive"]
+    }
+
+    bool must_change_password?=false
   
     object password_reset? {
       schema {
@@ -27,6 +35,7 @@ table user {
     {type: "primary", field: [{name: "id"}]}
     {type: "btree", field: [{name: "created_at", op: "desc"}]}
     {type: "btree|unique", field: [{name: "email", op: "asc"}]}
+    {type: "btree", field: [{name: "role", op: "asc"}]}
   ]
 
   tags = ["xano:quick-start"]

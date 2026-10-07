@@ -1,0 +1,4 @@
+schema: spec-driven
+created: 2026-10-06
+goal: Permitir acesso de administrador e profissionais com permissões distintas
+  e contas provisionadas manualmente

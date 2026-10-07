@@ -29,7 +29,10 @@ query "reset/update_password" verb=POST {
     db.edit user {
       field_name = "id"
       field_value = $auth.id
-      data = {password: $input.password}
+      data = {
+        password: $input.password
+        must_change_password: false
+      }
     } as $user
   
     // Create event log
@@ -37,7 +40,7 @@ query "reset/update_password" verb=POST {
       input = {
         user_id : $user.id
         action  : "reset_password"
-        metadata: $user
+        metadata: {role: $user.role}
       }
     } as $event_log
   }
