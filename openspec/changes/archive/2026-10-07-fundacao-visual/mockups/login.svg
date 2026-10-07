@@ -1,0 +1,96 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="100vw" height="100vh" viewBox="0 0 1440 960" preserveAspectRatio="xMidYMid meet" style="display:block;min-width:100vw;min-height:100vh;overflow:hidden;background:#101216" role="img" aria-labelledby="title desc">
+  <title id="title">Conceito visual da tela de acesso da Lotus Barber</title>
+  <desc id="desc">Tela em carvão e grafite para a Lotus Barber, com formulário central e uma ilustração sutil de tesouras cruzadas na área esquerda.</desc>
+  <defs>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="150%">
+      <feDropShadow dx="0" dy="18" stdDeviation="24" flood-color="#000000" flood-opacity=".30"/>
+    </filter>
+    <linearGradient id="glow" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#1D2A40"/>
+      <stop offset="1" stop-color="#101216"/>
+    </linearGradient>
+    <g id="lotus-mark">
+      <path d="M21 9c-2 4-7 6-7 12a7 7 0 0014 0c0-6-5-8-7-12zm0 8c2 3 4 4 4 6a4 4 0 01-8 0c0-2 2-4 4-6z" fill="#FFFFFF"/>
+    </g>
+    <clipPath id="card-clip">
+      <rect x="764" y="190" width="486" height="582" rx="22"/>
+    </clipPath>
+    <pattern id="barber-stripe" x="0" y="0" width="72" height="6" patternUnits="userSpaceOnUse">
+      <rect width="72" height="6" fill="#2864D9"/>
+      <path d="M20 0h20l8 6H28z" fill="#F4F5F7"/>
+      <path d="M48 0h20l8 6H56z" fill="#D94B54"/>
+      <animate id="stripe-motion" attributeName="x" from="0" to="-72" dur="3s" repeatCount="indefinite"/>
+    </pattern>
+    <style>
+      @media (prefers-reduced-motion: reduce) {
+        #stripe-motion { display: none; }
+      }
+      svg &gt; rect:first-of-type { fill: #101216; }
+      svg &gt; circle { fill: none; stroke: #29364C; }
+      svg &gt; path { stroke: #252A32; }
+      text[fill="#292824"] { fill: #F4F5F7; }
+      text[fill="#6F6C65"] { fill: #A7ABB4; }
+      text[fill="#8A877F"] { fill: #858C98; }
+      text[fill="#8F5638"] { fill: #78A7FF; }
+      g[transform="translate(92 66)"] rect { fill: #2864D9; }
+      g[filter="url(#shadow)"] rect { fill: #191C22; stroke: #343943; stroke-width: 1; }
+      g[transform="translate(814 240)"] rect[fill="#FFFFFF"] { fill: #22262E; stroke: #3A404B; }
+      g[transform="translate(814 240)"] rect[fill="#8F5638"] { fill: #2864D9; stroke: none; }
+      g[transform="translate(814 240)"] circle { fill: #22262E; }
+      g[transform="translate(814 240)"] path { stroke: #A7ABB4; }
+      g[transform="translate(814 240)"] circle + path { stroke: #A7ABB4; }
+    </style>
+  </defs>
+  <rect width="1440" height="960" fill="#101216"/>
+  <circle cx="1090" cy="130" r="300" fill="url(#glow)"/>
+  <circle cx="1140" cy="145" r="192" fill="none" stroke="#29364C" stroke-width="1"/>
+  <circle cx="1140" cy="145" r="235" fill="none" stroke="#29364C" stroke-width="1"/>
+  <g font-family="Inter, Arial, sans-serif">
+    <g transform="translate(92 66)">
+      <rect x="0" y="0" width="42" height="42" rx="12" fill="#2864D9"/>
+      <use href="#lotus-mark" x="2" y="2" width="38" height="38"/>
+      <text x="56" y="29" fill="#292824" font-size="23" font-weight="700" letter-spacing=".2">Lotus Barber</text>
+      <text x="56" y="49" fill="#6F6C65" font-size="11" letter-spacing="1.5">GESTÃO DA BARBEARIA</text>
+    </g>
+
+    <g transform="translate(190 288)">
+      <text x="0" y="0" fill="#78A7FF" font-size="12" font-weight="700" letter-spacing="2.1">ACESSO PROFISSIONAL</text>
+      <text x="0" y="62" fill="#292824" font-size="44" font-weight="700">Seu talento</text>
+      <text x="0" y="116" fill="#292824" font-size="44" font-weight="700">em primeiro lugar.</text>
+      <text x="0" y="164" fill="#6F6C65" font-size="17">Organize sua rotina e deixe a gestão mais simples</text>
+      <text x="0" y="190" fill="#6F6C65" font-size="17">para focar no que você faz melhor.</text>
+      <rect x="0" y="232" width="44" height="3" rx="1.5" fill="#D94B54"/>
+      <text x="0" y="272" fill="#6F6C65" font-size="13">Agenda · equipe · atendimento</text>
+    </g>
+
+    <g filter="url(#shadow)">
+      <rect x="764" y="190" width="486" height="582" rx="22" fill="#191C22" stroke="#343943" stroke-width="1"/>
+    </g>
+    <rect x="764" y="190" width="486" height="6" fill="#2864D9" clip-path="url(#card-clip)"/>
+    <rect x="764" y="190" width="486" height="6" fill="url(#barber-stripe)" clip-path="url(#card-clip)"/>
+    <g transform="translate(814 240)">
+      <text x="0" y="20" fill="#292824" font-size="28" font-weight="700">Bem-vindo de volta</text>
+      <text x="0" y="51" fill="#6F6C65" font-size="15">Acesse sua conta da equipe.</text>
+
+      <text x="0" y="112" fill="#292824" font-size="13" font-weight="600">E-mail</text>
+      <rect x="0" y="126" width="386" height="54" rx="9" fill="#22262E" stroke="#3A404B" stroke-width="1.5"/>
+      <text x="17" y="159" fill="#858C98" font-size="14">nome@barbearia.com</text>
+
+      <text x="0" y="218" fill="#292824" font-size="13" font-weight="600">Senha</text>
+      <rect x="0" y="232" width="386" height="54" rx="9" fill="#22262E" stroke="#3A404B" stroke-width="1.5"/>
+      <text x="17" y="265" fill="#858C98" font-size="18" letter-spacing="3">••••••••••</text>
+      <text x="344" y="265" fill="#6F6C65" font-size="12">◉</text>
+
+      <rect x="0" y="316" width="386" height="54" rx="9" fill="#2864D9"/>
+      <text x="193" y="350" fill="#FFFFFF" font-size="14" font-weight="700" text-anchor="middle">Entrar na plataforma</text>
+      <path d="M333 343h16m-6-6 6 6-6 6" fill="none" stroke="#FFFFFF" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
+
+      <circle cx="8" cy="419" r="8" fill="#22262E"/>
+      <path d="M8 415v5m0 3v.5" stroke="#A7ABB4" stroke-width="1.5" stroke-linecap="round"/>
+      <text x="25" y="423" fill="#6F6C65" font-size="12">O acesso é exclusivo para a equipe da barbearia.</text>
+      <text x="0" y="501" fill="#858C98" font-size="11" letter-spacing=".4">LOTUS BARBER · PAINEL INTERNO</text>
+    </g>
+
+    <text x="720" y="900" fill="#858C98" font-size="12" text-anchor="middle">PRÉVIA CONCEITUAL · CORES E CONTRASTES A VALIDAR NA IMPLEMENTAÇÃO</text>
+  </g>
+</svg>

@@ -1,0 +1,249 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="100vw" height="100vh" viewBox="0 0 1440 960" preserveAspectRatio="xMidYMid meet" style="display:block;min-width:100vw;min-height:100vh;overflow:hidden;background:#101216" role="img" aria-labelledby="title desc">
+  <title id="title">Conceito do painel interno da Lotus Barber</title>
+  <desc id="desc">Dashboard ilustrativo em carvão e grafite com navegação lateral, ações azuis, faixa tricolor e agenda fictícia.</desc>
+  <defs>
+    <filter id="card-shadow" x="-15%" y="-15%" width="130%" height="140%">
+      <feDropShadow dx="0" dy="6" stdDeviation="14" flood-color="#000000" flood-opacity=".22"/>
+    </filter>
+    <linearGradient id="header-glow" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#172033"/>
+      <stop offset="1" stop-color="#101216"/>
+    </linearGradient>
+    <g id="lotus-mark">
+      <path d="M21 9c-2 4-7 6-7 12a7 7 0 0014 0c0-6-5-8-7-12zm0 8c2 3 4 4 4 6a4 4 0 01-8 0c0-2 2-4 4-6z" fill="#FFFFFF"/>
+    </g>
+    <pattern id="barber-stripe" x="0" y="0" width="72" height="6" patternUnits="userSpaceOnUse">
+      <rect width="72" height="6" fill="#2864D9"/>
+      <path d="M20 0h20l8 6H28z" fill="#F4F5F7"/>
+      <path d="M48 0h20l8 6H56z" fill="#D94B54"/>
+      <animate id="stripe-motion-dashboard" attributeName="x" from="0" to="-72" dur="3s" repeatCount="indefinite"/>
+    </pattern>
+    <style>
+      @media (prefers-reduced-motion: reduce) {
+        #stripe-motion-dashboard { display: none; }
+      }
+      .text-main { fill: #F4F5F7; font-family: Inter, Arial, sans-serif; }
+      .text-muted { fill: #A7ABB4; font-family: Inter, Arial, sans-serif; }
+      .text-dim { fill: #858C98; font-family: Inter, Arial, sans-serif; }
+      .line { stroke: #2B3039; }
+      .card { fill: #191C22; stroke: #343943; stroke-width: 1; }
+      .card-muted { fill: #22262E; }
+      .blue { fill: #2864D9; }
+      .blue-text { fill: #78A7FF; }
+      .red { fill: #D94B54; }
+    </style>
+    <clipPath id="sidebar-clip">
+      <rect width="260" height="960"/>
+    </clipPath>
+  </defs>
+
+  <rect width="1440" height="960" fill="#101216"/>
+  <rect x="260" width="1180" height="960" fill="#101216"/>
+  <circle cx="1320" cy="156" r="260" fill="url(#header-glow)" opacity=".55"/>
+  <g fill="none" stroke="#29364C" stroke-width="1" opacity=".62">
+    <circle cx="1320" cy="156" r="174"/>
+    <circle cx="1320" cy="156" r="218"/>
+    <circle cx="1320" cy="156" r="262"/>
+  </g>
+  <g fill="none" stroke="#252A32" stroke-width="2" opacity=".62">
+    <path d="M258 870 C398 786 490 926 630 850 C710 806 755 818 818 851"/>
+    <path d="M258 906 C398 822 490 962 630 886 C710 842 755 854 818 887"/>
+  </g>
+
+  <g clip-path="url(#sidebar-clip)">
+    <rect width="260" height="960" fill="#15181E"/>
+    <rect width="260" height="6" fill="url(#barber-stripe)"/>
+    <line x1="259" y1="6" x2="259" y2="960" stroke="#303640"/>
+  </g>
+  <g font-family="Inter, Arial, sans-serif">
+    <g transform="translate(26 32)">
+      <rect width="42" height="42" rx="12" fill="#2864D9"/>
+      <use href="#lotus-mark" x="2" y="2" width="38" height="38"/>
+      <text x="54" y="24" class="text-main" font-size="19" font-weight="700">Lotus Barber</text>
+      <text x="54" y="41" class="text-dim" font-size="8.5" letter-spacing="1.25">GESTÃO DA BARBEARIA</text>
+    </g>
+
+    <text x="28" y="127" class="text-dim" font-size="10" font-weight="700" letter-spacing="1.6">MENU PRINCIPAL</text>
+    <g transform="translate(16 146)">
+      <rect width="228" height="46" rx="9" fill="#1D2B43"/>
+      <rect width="3" height="26" y="10" rx="1.5" fill="#2864D9"/>
+      <rect x="17" y="14" width="17" height="17" rx="4" fill="none" stroke="#78A7FF" stroke-width="1.5"/>
+      <path d="M20 27l4-4 3 2 4-5" fill="none" stroke="#78A7FF" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+      <text x="48" y="28" class="text-main" font-size="13" font-weight="700">Visão geral</text>
+    </g>
+    <g class="text-muted" font-size="13">
+      <g transform="translate(34 213)">
+        <rect x="0" y="0" width="17" height="17" rx="4" fill="none" stroke="#858C98" stroke-width="1.4"/>
+        <path d="M0 6h17m-12-6v4m8-4v4" fill="none" stroke="#858C98" stroke-width="1.2" stroke-linecap="round"/>
+        <text x="30" y="14" class="text-muted">Agenda</text>
+      </g>
+      <g transform="translate(34 267)">
+        <circle cx="8" cy="5" r="4" fill="none" stroke="#858C98" stroke-width="1.4"/>
+        <path d="M1 18c0-4 3-6 7-6s7 2 7 6" fill="none" stroke="#858C98" stroke-width="1.4" stroke-linecap="round"/>
+        <text x="30" y="14" class="text-muted">Clientes</text>
+      </g>
+      <g transform="translate(34 321)">
+        <path d="M2 3h12l-1 14H3L2 3zm3 0V1h6v2" fill="none" stroke="#858C98" stroke-width="1.4" stroke-linejoin="round"/>
+        <text x="30" y="14" class="text-muted">Serviços</text>
+      </g>
+      <g transform="translate(34 375)">
+        <circle cx="5" cy="6" r="3.5" fill="none" stroke="#858C98" stroke-width="1.4"/>
+        <circle cx="13" cy="7" r="3" fill="none" stroke="#858C98" stroke-width="1.4"/>
+        <path d="M0 18c0-4 2-6 5-6s5 2 5 6m0-5c4-1 7 1 7 5" fill="none" stroke="#858C98" stroke-width="1.4" stroke-linecap="round"/>
+        <text x="30" y="14" class="text-muted">Equipe</text>
+      </g>
+      <g transform="translate(34 429)">
+        <rect x="1" y="2" width="15" height="14" rx="3" fill="none" stroke="#858C98" stroke-width="1.4"/>
+        <path d="M4 7h9m-9 4h5" fill="none" stroke="#858C98" stroke-width="1.3" stroke-linecap="round"/>
+        <text x="30" y="14" class="text-muted">Financeiro</text>
+      </g>
+    </g>
+
+    <line x1="24" y1="882" x2="236" y2="882" class="line"/>
+    <circle cx="49" cy="919" r="18" fill="#22262E"/>
+    <text x="49" y="923" class="text-main" font-size="10" font-weight="700" text-anchor="middle">AM</text>
+    <text x="78" y="916" class="text-main" font-size="12" font-weight="600">Ana Martins</text>
+    <text x="78" y="934" class="text-dim" font-size="10">Administradora</text>
+
+    <rect x="260" y="6" width="1180" height="70" fill="#15181E"/>
+    <line x1="260" y1="76" x2="1440" y2="76" class="line"/>
+    <text x="300" y="45" class="text-muted" font-size="12">Lotus Barber</text>
+    <text x="378" y="45" class="text-dim" font-size="12">/</text>
+    <text x="394" y="45" class="text-main" font-size="12" font-weight="600">Visão geral</text>
+    <circle cx="1353" cy="41" r="17" fill="#22262E"/>
+    <path d="M1348 41a5 5 0 0110 0c0 6 2 6 2 8h-14c0-2 2-2 2-8m4 11h2" fill="none" stroke="#A7ABB4" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>
+    <circle cx="1400" cy="41" r="18" fill="#1D2B43"/>
+    <text x="1400" y="45" class="blue-text" font-size="10" font-weight="700" text-anchor="middle">AM</text>
+
+    <text x="300" y="139" class="text-main" font-size="27" font-weight="700">Bom dia, Ana</text>
+    <text x="300" y="166" class="text-muted" font-size="14">Veja o movimento da barbearia hoje.</text>
+    <rect x="1168" y="108" width="224" height="42" rx="8" class="card" />
+    <rect x="1185" y="121" width="15" height="15" rx="3" fill="none" stroke="#A7ABB4" stroke-width="1.3"/>
+    <path d="M1185 126h15m-10-5v4m6-4v4" fill="none" stroke="#A7ABB4" stroke-width="1.2"/>
+    <text x="1210" y="135" class="text-main" font-size="12">Quarta-feira, 7 de outubro</text>
+
+    <g filter="url(#card-shadow)">
+      <rect x="300" y="198" width="252" height="128" rx="12" class="card"/>
+      <rect x="570" y="198" width="252" height="128" rx="12" class="card"/>
+      <rect x="840" y="198" width="252" height="128" rx="12" class="card"/>
+      <rect x="1110" y="198" width="282" height="128" rx="12" class="card"/>
+    </g>
+    <g>
+      <text x="322" y="230" class="text-muted" font-size="12">Atendimentos hoje</text>
+      <text x="322" y="276" class="text-main" font-size="30" font-weight="700">08</text>
+      <rect x="480" y="214" width="48" height="48" rx="11" fill="#1D2B43"/>
+      <rect x="495" y="227" width="18" height="18" rx="3" fill="none" stroke="#78A7FF" stroke-width="1.5"/>
+      <path d="M495 233h18m-12-6v5m7-5v5" fill="none" stroke="#78A7FF" stroke-width="1.3"/>
+      <text x="322" y="305" class="text-dim" font-size="10">2 próximos na agenda</text>
+
+      <text x="592" y="230" class="text-muted" font-size="12">Agendamentos pendentes</text>
+      <text x="592" y="276" class="text-main" font-size="30" font-weight="700">03</text>
+      <rect x="750" y="214" width="48" height="48" rx="11" fill="#332B1C"/>
+      <circle cx="774" cy="238" r="10" fill="none" stroke="#E2B45D" stroke-width="1.5"/>
+      <path d="M774 232v6l5 3" fill="none" stroke="#E2B45D" stroke-width="1.5" stroke-linecap="round"/>
+      <text x="592" y="305" class="text-dim" font-size="10">Aguardando confirmação</text>
+
+      <text x="862" y="230" class="text-muted" font-size="12">Equipe ativa</text>
+      <text x="862" y="276" class="text-main" font-size="30" font-weight="700">04</text>
+      <rect x="1020" y="214" width="48" height="48" rx="11" fill="#1B3028"/>
+      <circle cx="1044" cy="233" r="5" fill="none" stroke="#70C69B" stroke-width="1.5"/>
+      <path d="M1035 250c0-5 3-8 9-8s9 3 9 8" fill="none" stroke="#70C69B" stroke-width="1.5" stroke-linecap="round"/>
+      <text x="862" y="305" class="text-dim" font-size="10">Profissionais disponíveis</text>
+
+      <text x="1132" y="230" class="text-muted" font-size="12">Receita registrada hoje</text>
+      <text x="1132" y="276" class="text-main" font-size="27" font-weight="700">R$ 640,00</text>
+      <rect x="1328" y="214" width="44" height="48" rx="11" class="card-muted"/>
+      <path d="M1340 233h20m-20 7h20m-15-13c-4 2-4 10 0 12m10-12c4 2 4 10 0 12" fill="none" stroke="#A7ABB4" stroke-width="1.4" stroke-linecap="round"/>
+      <text x="1132" y="305" class="text-dim" font-size="10">Valor meramente ilustrativo</text>
+    </g>
+
+    <g filter="url(#card-shadow)">
+      <rect x="300" y="352" width="700" height="478" rx="12" class="card"/>
+      <rect x="1018" y="352" width="374" height="478" rx="12" class="card"/>
+    </g>
+    <text x="326" y="391" class="text-main" font-size="16" font-weight="700">Agenda de hoje</text>
+    <text x="326" y="414" class="text-muted" font-size="11">Acompanhe os próximos horários da equipe.</text>
+    <text x="974" y="391" class="blue-text" font-size="11" font-weight="600" text-anchor="end">Ver agenda</text>
+    <line x1="326" y1="433" x2="974" y2="433" class="line"/>
+    <g font-size="10">
+      <text x="326" y="466" class="text-dim" font-weight="600" letter-spacing=".6">HORÁRIO</text>
+      <text x="422" y="466" class="text-dim" font-weight="600" letter-spacing=".6">CLIENTE</text>
+      <text x="650" y="466" class="text-dim" font-weight="600" letter-spacing=".6">PROFISSIONAL</text>
+      <text x="833" y="466" class="text-dim" font-weight="600" letter-spacing=".6">STATUS</text>
+      <line x1="326" y1="482" x2="974" y2="482" class="line"/>
+      <text x="326" y="517" class="text-main" font-size="11" font-weight="600">09:00</text>
+      <circle cx="433" cy="511" r="14" fill="#1D2B43"/>
+      <text x="433" y="515" class="blue-text" font-size="9" font-weight="700" text-anchor="middle">RC</text>
+      <text x="456" y="515" class="text-main" font-size="11">Rafael Costa</text>
+      <text x="650" y="515" class="text-muted" font-size="11">João Silva</text>
+      <rect x="833" y="499" width="96" height="24" rx="12" fill="#1B3028"/>
+      <circle cx="846" cy="511" r="3" fill="#70C69B"/>
+      <text x="855" y="515" fill="#70C69B" font-size="10" font-weight="600">Confirmado</text>
+      <line x1="326" y1="542" x2="974" y2="542" class="line"/>
+      <text x="326" y="577" class="text-main" font-size="11" font-weight="600">09:45</text>
+      <circle cx="433" cy="571" r="14" fill="#252A32"/>
+      <text x="433" y="575" class="text-muted" font-size="9" font-weight="700" text-anchor="middle">ML</text>
+      <text x="456" y="575" class="text-main" font-size="11">Marcos Lima</text>
+      <text x="650" y="575" class="text-muted" font-size="11">Pedro Alves</text>
+      <rect x="833" y="559" width="96" height="24" rx="12" fill="#332B1C"/>
+      <circle cx="846" cy="571" r="3" fill="#E2B45D"/>
+      <text x="855" y="575" fill="#E2B45D" font-size="10" font-weight="600">Pendente</text>
+      <line x1="326" y1="602" x2="974" y2="602" class="line"/>
+      <text x="326" y="637" class="text-main" font-size="11" font-weight="600">10:30</text>
+      <circle cx="433" cy="631" r="14" fill="#1B3028"/>
+      <text x="433" y="635" fill="#70C69B" font-size="9" font-weight="700" text-anchor="middle">FA</text>
+      <text x="456" y="635" class="text-main" font-size="11">Felipe Araújo</text>
+      <text x="650" y="635" class="text-muted" font-size="11">João Silva</text>
+      <rect x="833" y="619" width="96" height="24" rx="12" fill="#1B3028"/>
+      <circle cx="846" cy="631" r="3" fill="#70C69B"/>
+      <text x="855" y="635" fill="#70C69B" font-size="10" font-weight="600">Confirmado</text>
+      <line x1="326" y1="662" x2="974" y2="662" class="line"/>
+      <text x="326" y="697" class="text-main" font-size="11" font-weight="600">11:15</text>
+      <circle cx="433" cy="691" r="14" fill="#332B1C"/>
+      <text x="433" y="695" fill="#E2B45D" font-size="9" font-weight="700" text-anchor="middle">BL</text>
+      <text x="456" y="695" class="text-main" font-size="11">Bruno Lopes</text>
+      <text x="650" y="695" class="text-muted" font-size="11">Lucas Melo</text>
+      <rect x="833" y="679" width="96" height="24" rx="12" fill="#332B1C"/>
+      <circle cx="846" cy="691" r="3" fill="#E2B45D"/>
+      <text x="855" y="695" fill="#E2B45D" font-size="10" font-weight="600">Pendente</text>
+    </g>
+    <rect x="326" y="756" width="648" height="48" rx="8" class="card-muted"/>
+    <text x="650" y="785" class="text-muted" font-size="11" text-anchor="middle">Prévia conceitual · nomes e horários fictícios</text>
+
+    <text x="1044" y="391" class="text-main" font-size="16" font-weight="700">Acesso rápido</text>
+    <text x="1044" y="414" class="text-muted" font-size="11">Atalhos para tarefas do dia a dia.</text>
+    <line x1="1044" y1="433" x2="1366" y2="433" class="line"/>
+    <g>
+      <rect x="1044" y="454" width="322" height="66" rx="9" fill="#1C2027" stroke="#343943"/>
+      <rect x="1058" y="467" width="40" height="40" rx="9" fill="#1D2B43"/>
+      <rect x="1070" y="477" width="16" height="18" rx="3" fill="none" stroke="#78A7FF" stroke-width="1.4"/>
+      <path d="M1070 483h16m-11-6v5m6-5v5" fill="none" stroke="#78A7FF" stroke-width="1.2"/>
+      <text x="1112" y="483" class="text-main" font-size="12" font-weight="600">Novo agendamento</text>
+      <text x="1112" y="501" class="text-muted" font-size="10">Reserve um horário para um cliente</text>
+      <path d="M1340 486h10m-4-4 4 4-4 4" fill="none" stroke="#78A7FF" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
+
+      <rect x="1044" y="532" width="322" height="66" rx="9" fill="#1C2027" stroke="#343943"/>
+      <rect x="1058" y="545" width="40" height="40" rx="9" class="card-muted"/>
+      <circle cx="1074" cy="557" r="4" fill="none" stroke="#A7ABB4" stroke-width="1.4"/>
+      <path d="M1066 576c0-5 3-8 8-8s8 3 8 8m1-15a4 4 0 014 4" fill="none" stroke="#A7ABB4" stroke-width="1.4" stroke-linecap="round"/>
+      <text x="1112" y="561" class="text-main" font-size="12" font-weight="600">Cadastrar cliente</text>
+      <text x="1112" y="579" class="text-muted" font-size="10">Adicione um novo contato</text>
+      <path d="M1340 564h10m-4-4 4 4-4 4" fill="none" stroke="#78A7FF" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
+
+      <rect x="1044" y="610" width="322" height="66" rx="9" fill="#1C2027" stroke="#343943"/>
+      <rect x="1058" y="623" width="40" height="40" rx="9" class="card-muted"/>
+      <path d="M1068 633h20l-2 18h-16zm5 0v-3h10v3" fill="none" stroke="#A7ABB4" stroke-width="1.4" stroke-linejoin="round"/>
+      <text x="1112" y="639" class="text-main" font-size="12" font-weight="600">Gerenciar serviços</text>
+      <text x="1112" y="657" class="text-muted" font-size="10">Revise seu catálogo</text>
+      <path d="M1340 642h10m-4-4 4 4-4 4" fill="none" stroke="#78A7FF" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
+    </g>
+    <rect x="1044" y="704" width="322" height="100" rx="9" fill="#1D2B43" opacity=".72"/>
+    <circle cx="1068" cy="733" r="10" fill="#1B3028"/>
+    <path d="M1064 733l3 3 6-7" fill="none" stroke="#70C69B" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+    <text x="1087" y="730" class="text-main" font-size="11" font-weight="600">Tudo em ordem</text>
+    <text x="1060" y="758" class="text-muted" font-size="10">Sua equipe e sua operação em um só lugar.</text>
+    <text x="1060" y="775" class="text-muted" font-size="10">Uma rotina mais simples começa aqui.</text>
+
+    <text x="826" y="919" class="text-dim" font-size="11" text-anchor="middle">CONCEITO VISUAL · CONTEÚDO ILUSTRATIVO · MÓDULOS DEPENDEM DE IMPLEMENTAÇÃO</text>
+  </g>
+</svg>
