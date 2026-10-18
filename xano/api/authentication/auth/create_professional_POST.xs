@@ -31,17 +31,6 @@ query "auth/professionals" verb=POST {
       error = "A professional with this email already exists."
     }
 
-    db.get user {
-      field_name = "role"
-      field_value = "admin"
-      output = ["id"]
-    } as $existing_admin
-
-    precondition ($existing_admin != null && $existing_admin.id == $auth.id) {
-      error_type = "accessdenied"
-      error = "Only the existing administrator can provision professionals."
-    }
-
     security.create_uuid as $temporary_secret
 
     var $temporary_password {

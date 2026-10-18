@@ -5,3 +5,4 @@ assets/external/
 .web
 *.db
 .venv/
+.env

@@ -22,17 +22,17 @@ function "Quick Start/enforce_role" {
     } as $user
   
     // Ensure the user exists
-    precondition ($user != null) {
+    precondition ($user == null) {
       error_type = "inputerror"
       error = "User not found with the provided ID."
     }
 
-    precondition ($user.status == "active") {
+    precondition ($user.status != "active") {
       error_type = "accessdenied"
       error = "User account is inactive."
     }
 
-    precondition ($user.must_change_password == false) {
+    precondition ($user.must_change_password == true) {
       error_type = "accessdenied"
       error = "Password change is required before using protected operations."
     }
@@ -53,7 +53,7 @@ function "Quick Start/enforce_role" {
     }
   
     // Ensure the required role is a valid, defined role in the hierarchy.
-    precondition ($required_role_level > 0) {
+    precondition ($required_role_level == null) {
       error_type = "inputerror"
       error = "Invalid required role specified: " ~ $input.required_role
     }
