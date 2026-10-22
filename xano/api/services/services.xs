@@ -7,10 +7,6 @@ query "services" verb=GET {
   }
 
   stack {
-    function.run "Quick Start/enforce_role" {
-      input = {user_id: $auth.id, required_role: "professional"}
-    } as $role_check
-
     db.query service {
       where = $db.service.status == "active"
       return = {type: "list"}
@@ -18,4 +14,5 @@ query "services" verb=GET {
   }
 
   response = $services
+  guid = "2XKel2K1YVv7Z38HrfU_AlwzyQU"
 }

@@ -35,4 +35,5 @@ query "services/{service_id}/status" verb=PATCH {
   }
 
   response = $service
+  guid = "rvjly7noE8LDdfasNLXoMOtcGSs"
 }

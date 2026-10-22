@@ -396,8 +396,8 @@ input {
   min-height: 100vh;
   grid-template-columns: 248px minmax(0, 1fr);
   background:
-    radial-gradient(ellipse at 78% 0%, rgb(37 49 71 / 13%), transparent 36%),
-    var(--pc-bg);
+    radial-gradient(ellipse at 78% 0%, rgb(37 49 71 / 18%), transparent 36%),
+    #0d0f13;
 }
 
 .pc-sidebar {
@@ -407,8 +407,10 @@ input {
   flex-direction: column;
   gap: 27px;
   overflow: hidden;
-  border-right: 1px solid #2b2f38;
-  background: #15171c;
+  border-right: 1px solid #303540;
+  background:
+    linear-gradient(180deg, rgb(30 34 42 / 72%), transparent 52%),
+    #15171c;
   padding: 25px 18px 20px;
 }
 
@@ -460,6 +462,7 @@ input {
   display: flex;
   min-height: 40px;
   align-items: center;
+  gap: 11px;
   border: 1px solid transparent;
   border-radius: 8px;
   padding: 0 11px;
@@ -470,20 +473,40 @@ input {
 }
 
 .pc-nav-link:hover {
-  background: #20242b;
+  background: #252b36;
   color: var(--pc-text);
 }
 
 .pc-nav-link-active {
-  border-color: #343c4a;
-  background: #222934;
+  border-color: #405273;
+  background: linear-gradient(90deg, #253856, #202934);
   color: #f2f4f8;
+  box-shadow: inset 3px 0 0 #4b7ff0, 0 5px 16px rgb(0 0 0 / 12%);
+}
+
+.pc-nav-icon {
+  flex: 0 0 auto;
+  color: #8d96a7;
+}
+
+.pc-nav-link-active .pc-nav-icon {
+  color: #82aaff;
 }
 
 .pc-sidebar-profile {
   margin-top: auto;
-  border-top: 1px solid #2d313a;
-  padding: 17px 8px 0;
+  border-top: 1px solid #343a46;
+  padding: 15px 8px 0;
+}
+
+.pc-sidebar-profile-identity {
+  width: 100%;
+  gap: 10px;
+}
+
+.pc-profile-icon {
+  flex: 0 0 auto;
+  color: #8ba8e8;
 }
 
 .pc-sidebar-user {
@@ -503,13 +526,17 @@ input {
 
 .pc-app-main {
   min-width: 0;
+  background:
+    linear-gradient(180deg, rgb(24 28 36 / 24%), transparent 170px),
+    #0d0f13;
 }
 
 .pc-topbar {
   display: flex;
   min-height: 70px;
   align-items: center;
-  border-bottom: 1px solid #282c34;
+  border-bottom: 1px solid #303540;
+  background: rgb(17 20 26 / 88%);
   padding: 0 clamp(24px, 4vw, 58px);
 }
 

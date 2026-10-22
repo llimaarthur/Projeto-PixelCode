@@ -1,0 +1,146 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="960" viewBox="0 0 1440 960" role="img" aria-labelledby="title desc">
+  <title id="title">Prévia da tela de clientes e contatos da Lotus Barber</title>
+  <desc id="desc">Painel interno em tema escuro com navegação lateral, resumo de clientes, busca, filtros e tabela de contatos.</desc>
+  <defs>
+    <linearGradient id="page-glow" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#172033"/>
+      <stop offset="1" stop-color="#101216"/>
+    </linearGradient>
+    <pattern id="barber-stripe" width="72" height="6" patternUnits="userSpaceOnUse">
+      <rect width="72" height="6" fill="#4B7FF0"/>
+      <path d="M20 0h20l8 6H28z" fill="#F4F5F7"/>
+      <path d="M48 0h20l8 6H56z" fill="#D94B54"/>
+    </pattern>
+    <filter id="shadow" x="-15%" y="-15%" width="130%" height="140%">
+      <feDropShadow dx="0" dy="8" stdDeviation="14" flood-color="#000000" flood-opacity=".2"/>
+    </filter>
+    <style>
+      .main { fill:#F4F5F7; font-family:Inter,Arial,sans-serif }
+      .muted { fill:#A7ABB4; font-family:Inter,Arial,sans-serif }
+      .subtle { fill:#777D89; font-family:Inter,Arial,sans-serif }
+      .line { stroke:#343943; stroke-width:1 }
+      .card { fill:#191C22; stroke:#343943; stroke-width:1 }
+      .smallcaps { font-family:Inter,Arial,sans-serif; font-size:10px; font-weight:700; letter-spacing:1.5px }
+    </style>
+    <g id="lotus">
+      <path d="M21 9c-2 4-7 6-7 12a7 7 0 0014 0c0-6-5-8-7-12zm0 8c2 3 4 4 4 6a4 4 0 01-8 0c0-2 2-4 4-6z" fill="#FFF"/>
+    </g>
+  </defs>
+
+  <rect width="1440" height="960" fill="#101216"/>
+  <circle cx="1300" cy="110" r="320" fill="url(#page-glow)" opacity=".42"/>
+  <rect width="252" height="960" fill="#15171C"/>
+  <rect width="252" height="6" fill="url(#barber-stripe)"/>
+  <line x1="251" y1="6" x2="251" y2="960" stroke="#2B2F38"/>
+
+  <g transform="translate(26 30)">
+    <rect width="42" height="42" rx="12" fill="#3164CF"/>
+    <use href="#lotus" x="1" y="1" width="40" height="40"/>
+    <text x="54" y="23" class="main" font-size="18" font-weight="700">Lotus Barber</text>
+    <text x="54" y="40" class="subtle" font-size="8" font-weight="700" letter-spacing="1.3">GESTÃO DA BARBEARIA</text>
+  </g>
+
+  <text x="26" y="124" class="subtle smallcaps">MENU PRINCIPAL</text>
+  <g font-family="Inter,Arial,sans-serif" font-size="13">
+    <g transform="translate(16 145)">
+      <path d="M19 14h16v16H19zM22 11v6m10-6v6" fill="none" stroke="#777D89" stroke-width="1.5" stroke-linecap="round"/>
+      <text x="49" y="27" class="muted">Visão geral</text>
+    </g>
+    <g transform="translate(16 199)">
+      <path d="M19 14h16v15H19zM19 19h16m-11-5v-3m7 3v-3" fill="none" stroke="#777D89" stroke-width="1.4" stroke-linecap="round"/>
+      <text x="49" y="27" class="muted">Agenda</text>
+    </g>
+    <g transform="translate(16 253)">
+      <rect width="220" height="44" rx="9" fill="#1D2B43"/>
+      <rect width="3" height="26" y="9" rx="1.5" fill="#4B7FF0"/>
+      <circle cx="27" cy="17" r="5" fill="none" stroke="#78A7FF" stroke-width="1.4"/>
+      <path d="M17 32c0-6 4-9 10-9s10 3 10 9" fill="none" stroke="#78A7FF" stroke-width="1.4" stroke-linecap="round"/>
+      <text x="49" y="27" fill="#F4F5F7" font-weight="700">Clientes</text>
+    </g>
+    <g transform="translate(16 307)">
+      <path d="M19 12h17v18H19zM23 12V9h9v3" fill="none" stroke="#777D89" stroke-width="1.4" stroke-linejoin="round"/>
+      <text x="49" y="27" class="muted">Serviços</text>
+    </g>
+    <g transform="translate(16 361)">
+      <circle cx="23" cy="15" r="4" fill="none" stroke="#777D89" stroke-width="1.3"/>
+      <circle cx="33" cy="17" r="3.5" fill="none" stroke="#777D89" stroke-width="1.3"/>
+      <path d="M15 31c0-5 3-8 8-8s8 3 8 8m0-6c5-.5 8 2 8 6" fill="none" stroke="#777D89" stroke-width="1.3" stroke-linecap="round"/>
+      <text x="49" y="27" class="muted">Equipe</text>
+    </g>
+    <g transform="translate(16 415)">
+      <rect x="19" y="10" width="17" height="19" rx="3" fill="none" stroke="#777D89" stroke-width="1.3"/>
+      <path d="M23 16h9m-9 5h6" stroke="#777D89" stroke-width="1.3" stroke-linecap="round"/>
+      <text x="49" y="27" class="muted">Financeiro</text>
+    </g>
+  </g>
+  <line x1="20" y1="894" x2="232" y2="894" stroke="#2B2F38"/>
+  <circle cx="43" cy="925" r="17" fill="#263247"/>
+  <text x="43" y="930" text-anchor="middle" class="main" font-size="12" font-weight="700">AS</text>
+  <text x="72" y="923" class="main" font-size="12" font-weight="700">Ana Souza</text>
+  <text x="72" y="940" class="subtle" font-size="10">Administrador</text>
+
+  <g transform="translate(300 72)">
+    <text class="subtle smallcaps" y="0">RELACIONAMENTO</text>
+    <text class="main" y="48" font-size="34" font-weight="650" letter-spacing="-1.5">Clientes e contatos</text>
+    <text class="muted" y="78" font-size="14">Centralize os contatos da barbearia e encontre cada cliente rapidamente.</text>
+    <rect x="934" y="12" width="168" height="46" rx="10" fill="#4B7FF0"/>
+    <path d="M959 35h14m-7-7v14" stroke="#FFF" stroke-width="2" stroke-linecap="round"/>
+    <text x="987" y="40" class="main" font-size="13" font-weight="700">Novo cliente</text>
+
+    <g transform="translate(0 126)">
+      <rect width="1102" height="92" rx="14" class="card" filter="url(#shadow)"/>
+      <rect x="22" y="22" width="390" height="48" rx="9" fill="#20242C" stroke="#3D4350"/>
+      <circle cx="46" cy="46" r="8" fill="none" stroke="#A7ABB4" stroke-width="1.5"/>
+      <path d="m52 52 7 7" stroke="#A7ABB4" stroke-width="1.5" stroke-linecap="round"/>
+      <text x="72" y="51" class="subtle" font-size="13">Buscar por nome ou telefone</text>
+      <rect x="430" y="22" width="194" height="48" rx="9" fill="#20242C" stroke="#3D4350"/>
+      <text x="450" y="51" class="muted" font-size="13">Todos os status</text>
+      <path d="m595 43 5 5 5-5" fill="none" stroke="#A7ABB4" stroke-width="1.5"/>
+      <rect x="642" y="22" width="194" height="48" rx="9" fill="#20242C" stroke="#3D4350"/>
+      <text x="662" y="51" class="muted" font-size="13">Todas as origens</text>
+      <path d="m807 43 5 5 5-5" fill="none" stroke="#A7ABB4" stroke-width="1.5"/>
+      <text x="885" y="51" class="subtle" font-size="12">24 contatos encontrados</text>
+    </g>
+
+    <g transform="translate(0 246)">
+      <rect width="1102" height="438" rx="14" class="card" filter="url(#shadow)"/>
+      <text x="26" y="35" class="main" font-size="15" font-weight="700">Base de contatos</text>
+      <text x="26" y="58" class="subtle" font-size="12">Dados compartilhados pela equipe interna</text>
+      <line x1="22" y1="82" x2="1080" y2="82" class="line"/>
+      <g class="smallcaps subtle">
+        <text x="28" y="110">CLIENTE</text><text x="350" y="110">TELEFONE</text>
+        <text x="550" y="110">ORIGEM</text><text x="715" y="110">PRIMEIRO CONTATO</text>
+        <text x="900" y="110">STATUS</text>
+      </g>
+      <g font-family="Inter,Arial,sans-serif" font-size="13">
+        <g transform="translate(0 128)">
+          <circle cx="44" cy="23" r="17" fill="#263247"/><text x="44" y="28" text-anchor="middle" class="main" font-size="11" font-weight="700">MC</text>
+          <text x="76" y="19" class="main" font-weight="700">Mariana Costa</text><text x="76" y="39" class="subtle" font-size="11">Cliente ativo</text>
+          <text x="350" y="28" class="muted">(11) 99842-1032</text><text x="550" y="28" class="muted">WhatsApp</text><text x="715" y="28" class="muted">18 out. 2026</text>
+          <rect x="900" y="10" width="66" height="28" rx="14" fill="#193B32"/><circle cx="916" cy="24" r="4" fill="#55D6A1"/><text x="928" y="28" fill="#8BE8C2" font-size="11">Ativo</text>
+          <text x="1032" y="28" class="muted" font-size="18">•••</text><line x1="22" y1="64" x2="1080" y2="64" class="line"/>
+        </g>
+        <g transform="translate(0 208)">
+          <circle cx="44" cy="23" r="17" fill="#3A2D46"/><text x="44" y="28" text-anchor="middle" class="main" font-size="11" font-weight="700">RL</text>
+          <text x="76" y="19" class="main" font-weight="700">Rafael Lima</text><text x="76" y="39" class="subtle" font-size="11">Cliente ativo</text>
+          <text x="350" y="28" class="muted">(11) 99731-8820</text><text x="550" y="28" class="muted">Indicação</text><text x="715" y="28" class="muted">16 out. 2026</text>
+          <rect x="900" y="10" width="66" height="28" rx="14" fill="#193B32"/><circle cx="916" cy="24" r="4" fill="#55D6A1"/><text x="928" y="28" fill="#8BE8C2" font-size="11">Ativo</text>
+          <text x="1032" y="28" class="muted" font-size="18">•••</text><line x1="22" y1="64" x2="1080" y2="64" class="line"/>
+        </g>
+        <g transform="translate(0 288)">
+          <circle cx="44" cy="23" r="17" fill="#453329"/><text x="44" y="28" text-anchor="middle" class="main" font-size="11" font-weight="700">JS</text>
+          <text x="76" y="19" class="main" font-weight="700">João Santos</text><text x="76" y="39" class="subtle" font-size="11">Contato inativo</text>
+          <text x="350" y="28" class="muted">(11) 99605-4418</text><text x="550" y="28" class="muted">Instagram</text><text x="715" y="28" class="muted">02 set. 2026</text>
+          <rect x="900" y="10" width="78" height="28" rx="14" fill="#34252A"/><circle cx="916" cy="24" r="4" fill="#E67A83"/><text x="928" y="28" fill="#F0A1A7" font-size="11">Inativo</text>
+          <text x="1032" y="28" class="muted" font-size="18">•••</text><line x1="22" y1="64" x2="1080" y2="64" class="line"/>
+        </g>
+      </g>
+      <text x="28" y="410" class="subtle" font-size="12">Mostrando 1–3 de 24 contatos</text>
+      <g transform="translate(980 388)">
+        <rect width="34" height="30" rx="7" fill="#20242C" stroke="#3D4350"/><text x="17" y="20" text-anchor="middle" class="muted" font-size="16">‹</text>
+        <rect x="42" width="34" height="30" rx="7" fill="#1D2B43" stroke="#4B7FF0"/><text x="59" y="20" text-anchor="middle" fill="#F4F5F7" font-size="12">1</text>
+        <rect x="84" width="34" height="30" rx="7" fill="#20242C" stroke="#3D4350"/><text x="101" y="20" text-anchor="middle" class="muted" font-size="16">›</text>
+      </g>
+    </g>
+  </g>
+</svg>

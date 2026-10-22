@@ -54,4 +54,5 @@ query "services/{service_id}" verb=PATCH {
   }
 
   response = $service
+  guid = "KLnaonj9yPhGn0PFTGv4AvF4zO8"
 }

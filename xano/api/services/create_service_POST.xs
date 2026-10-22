@@ -43,4 +43,5 @@ query "services" verb=POST {
   }
 
   response = $service
+  guid = "1OXiMhAaT3FOI7Njr1aQTzj8xo4"
 }

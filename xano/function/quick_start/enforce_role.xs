@@ -14,29 +14,28 @@ function "Quick Start/enforce_role" {
       value = {admin: 2, professional: 1}
     }
   
-    // Retrieve the user's role from the database.
+    // The endpoint passes the authenticated user's ID to this function.
     db.get user {
       field_name = "id"
       field_value = $input.user_id
-      output = ["role", "status", "must_change_password"]
+      output = ["id", "role", "status", "must_change_password"]
     } as $user
-  
-    // Ensure the user exists
-    precondition ($user == null) {
+
+    precondition ($user != null) {
       error_type = "inputerror"
       error = "User not found with the provided ID."
     }
 
-    precondition ($user.status != "active") {
+    precondition ($user.status == "active") {
       error_type = "accessdenied"
       error = "User account is inactive."
     }
 
-    precondition ($user.must_change_password == true) {
+    precondition ($user.must_change_password != true) {
       error_type = "accessdenied"
       error = "Password change is required before using protected operations."
     }
-  
+
     // Extract the user's role from the retrieved user data.
     var $user_role {
       value = $user.role
@@ -53,7 +52,7 @@ function "Quick Start/enforce_role" {
     }
   
     // Ensure the required role is a valid, defined role in the hierarchy.
-    precondition ($required_role_level == null) {
+    precondition ($required_role_level != null) {
       error_type = "inputerror"
       error = "Invalid required role specified: " ~ $input.required_role
     }

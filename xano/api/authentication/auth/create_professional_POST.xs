@@ -68,4 +68,5 @@ query "auth/professionals" verb=POST {
     must_change_password : $professional.must_change_password
     temporary_password   : $temporary_password
   }
+  guid = "vYCLiKiI8JmILjzep2Zgz6FC3cw"
 }

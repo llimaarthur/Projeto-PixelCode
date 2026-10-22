@@ -1,4 +1,5 @@
 import os
+from datetime import date, datetime, timezone
 from decimal import Decimal, InvalidOperation
 from math import ceil, isfinite
 from pathlib import Path
@@ -6,6 +7,31 @@ from typing import Any
 
 import httpx
 import reflex as rx
+
+
+CONTACT_SOURCE_LABELS = {
+    "whatsapp": "WhatsApp",
+    "indicacao": "Indicação",
+    "instagram": "Instagram",
+    "ligacao": "Ligação",
+    "outra": "Outra",
+}
+CONTACT_SOURCE_VALUES = {
+    label: value for value, label in CONTACT_SOURCE_LABELS.items()
+}
+BRAZIL_AREA_CODES = frozenset(
+    {
+        "11", "12", "13", "14", "15", "16", "17", "18", "19",
+        "21", "22", "24", "27", "28",
+        "31", "32", "33", "34", "35", "37", "38",
+        "41", "42", "43", "44", "45", "46", "47", "48", "49",
+        "51", "53", "54", "55",
+        "61", "62", "63", "64", "65", "66", "67", "68", "69",
+        "71", "73", "74", "75", "77", "79",
+        "81", "82", "83", "84", "85", "86", "87", "88", "89",
+        "91", "93", "94", "95", "96", "97", "98", "99",
+    }
+)
 
 
 def _format_service_price(price: Decimal) -> str:
@@ -20,6 +46,106 @@ def _format_service_duration(duration_minutes: int) -> str:
     if hours:
         return f"{hours} h"
     return f"{minutes} min"
+
+
+def _format_contact_date(value: Any) -> str:
+    iso_date = _contact_date_iso_value(value)
+    if not iso_date:
+        return str(value or "—")
+    parsed_date = date.fromisoformat(iso_date)
+    return parsed_date.strftime("%d/%m/%Y")
+
+
+def _contact_date_iso_value(value: Any) -> str:
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        timestamp = value / 1000 if abs(value) >= 10_000_000_000 else value
+        try:
+            return datetime.fromtimestamp(timestamp, tz=timezone.utc).date().isoformat()
+        except (OverflowError, OSError, ValueError):
+            return ""
+
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    try:
+        return date.fromisoformat(text[:10]).isoformat()
+    except ValueError:
+        pass
+
+    try:
+        timestamp = float(text)
+    except ValueError:
+        return ""
+    if abs(timestamp) >= 10_000_000_000:
+        timestamp /= 1000
+    try:
+        return datetime.fromtimestamp(timestamp, tz=timezone.utc).date().isoformat()
+    except (OverflowError, OSError, ValueError):
+        return ""
+
+
+def _normalize_contact_phone(value: str) -> str:
+    digits = "".join(character for character in value if "0" <= character <= "9")
+    if len(digits) in (12, 13) and digits.startswith("55"):
+        return digits[2:]
+    return digits
+
+
+def _format_contact_phone(value: str) -> str:
+    digits = "".join(character for character in value if "0" <= character <= "9")
+    country_prefix = ""
+    explicit_country_prefix = value.lstrip().startswith("+55")
+    if len(digits) > 11 and digits.startswith("55") and (
+        explicit_country_prefix or len(digits) == 13
+    ):
+        digits = digits[2:]
+        country_prefix = "+55 "
+    digits = digits[:11]
+    if len(digits) <= 2:
+        return country_prefix + digits
+
+    area_code = digits[:2]
+    subscriber = digits[2:]
+    if subscriber.startswith("9"):
+        subscriber = subscriber[:9]
+        if len(subscriber) > 5:
+            subscriber = subscriber[:5] + "-" + subscriber[5:]
+    else:
+        subscriber = subscriber[:8]
+        if len(subscriber) > 4:
+            subscriber = subscriber[:4] + "-" + subscriber[4:]
+    return f"{country_prefix}({area_code}) {subscriber}"
+
+
+def _format_cpf(value: str) -> str:
+    digits = "".join(character for character in value if "0" <= character <= "9")[:11]
+    if len(digits) > 9:
+        return f"{digits[:3]}.{digits[3:6]}.{digits[6:9]}-{digits[9:]}"
+    if len(digits) > 6:
+        return f"{digits[:3]}.{digits[3:6]}.{digits[6:]}"
+    if len(digits) > 3:
+        return f"{digits[:3]}.{digits[3:]}"
+    return digits
+
+
+def _cpf_validation_error(value: str) -> str:
+    digits = "".join(character for character in value if "0" <= character <= "9")
+    if len(digits) != 11:
+        return "Informe um CPF com 11 dígitos."
+    return ""
+
+
+def _contact_phone_validation_error(value: str) -> str:
+    digits = _normalize_contact_phone(value)
+    if len(digits) not in (10, 11):
+        return "Informe um telefone com DDD e 10 ou 11 dígitos."
+    if digits[:2] not in BRAZIL_AREA_CODES:
+        return "Informe um DDD válido."
+    if len(digits) == 10 and digits[2] not in "23456789":
+        return "Informe um telefone fixo ou celular válido."
+    if len(digits) == 11 and digits[2] != "9":
+        return "Celulares devem ter 9 dígitos após o DDD."
+    return ""
 
 
 def _api_error_message(response: httpx.Response, fallback: str) -> str:
@@ -70,6 +196,8 @@ class AuthState(rx.State):
     error_message: str = ""
     temporary_password: str = ""
     is_submitting: bool = False
+    professional_phone: str = ""
+    professional_cpf: str = ""
     services: list[dict[str, Any]] = []
     service_loading: bool = False
     service_error_message: str = ""
@@ -85,6 +213,26 @@ class AuthState(rx.State):
     service_status_filter: str = "Todos os status"
     service_page: int = 1
     service_page_size: int = 5
+    contacts: list[dict[str, Any]] = []
+    contact_loading: bool = False
+    contact_error_message: str = ""
+    contact_success_message: str = ""
+    contact_form_error: str = ""
+    contact_form_open: bool = False
+    contact_form_name: str = ""
+    contact_form_phone: str = ""
+    contact_form_source: str = "WhatsApp"
+    contact_form_notes: str = ""
+    contact_form_first_contact_at: str = ""
+    contact_editing_id: int = 0
+    contact_search: str = ""
+    contact_status_filter: str = "Ativos"
+    contact_source_filter: str = "Todas as origens"
+    contact_page: int = 1
+    contact_page_size: int = 10
+    contact_total_count: int = 0
+    contact_confirming_id: int = 0
+    contact_confirming_status: str = ""
 
     async def _request(
         self,
@@ -92,11 +240,14 @@ class AuthState(rx.State):
         path: str,
         payload: dict[str, Any] | None = None,
         error_context: str = "serviço de acesso",
+        query_params: dict[str, Any] | None = None,
     ) -> httpx.Response | None:
         endpoint_path = path.lstrip("/")
         api_group_variable = (
             "XANO_SERVICES_API_URL"
             if endpoint_path == "services" or endpoint_path.startswith("services/")
+            else "XANO_CONTACTS_API_URL"
+            if endpoint_path == "contacts" or endpoint_path.startswith("contacts/")
             else "XANO_API_URL"
         )
         base_url = _configured_api_url(api_group_variable)
@@ -114,6 +265,7 @@ class AuthState(rx.State):
                     method,
                     f"{base_url}/{endpoint_path}",
                     json=payload,
+                    params=query_params,
                     headers=headers,
                 )
         except httpx.HTTPError:
@@ -125,6 +277,11 @@ class AuthState(rx.State):
         self.display_name = ""
         self.role = ""
         self.temporary_password = ""
+
+    @rx.event
+    def clear_menu_success_messages(self):
+        self.service_success_message = ""
+        self.contact_success_message = ""
 
     async def _load_identity(self) -> dict | None:
         response = await self._request("GET", "auth/me")
@@ -139,6 +296,7 @@ class AuthState(rx.State):
 
     @rx.event
     async def login(self, form_data: dict[str, Any]):
+        self.clear_menu_success_messages()
         if self.is_submitting:
             return
         self.is_submitting = True
@@ -172,6 +330,7 @@ class AuthState(rx.State):
 
     @rx.event
     async def require_session(self):
+        self.clear_menu_success_messages()
         if not self._auth_token:
             return rx.redirect("/login")
         profile = await self._load_identity()
@@ -182,6 +341,7 @@ class AuthState(rx.State):
 
     @rx.event
     async def route_root(self):
+        self.clear_menu_success_messages()
         if not self._auth_token:
             return rx.redirect("/login")
         profile = await self._load_identity()
@@ -193,6 +353,7 @@ class AuthState(rx.State):
 
     @rx.event
     async def require_password_change(self):
+        self.clear_menu_success_messages()
         if not self._auth_token:
             return rx.redirect("/login")
         profile = await self._load_identity()
@@ -203,6 +364,7 @@ class AuthState(rx.State):
 
     @rx.event
     async def require_admin(self):
+        self.clear_menu_success_messages()
         self.temporary_password = ""
         if not self._auth_token:
             return rx.redirect("/login")
@@ -249,6 +411,16 @@ class AuthState(rx.State):
             return
         if self.is_submitting:
             return
+        phone = _format_contact_phone(str(form_data.get("phone", "")).strip())
+        cpf = _format_cpf(str(form_data.get("cpf", "")).strip())
+        phone_error = _contact_phone_validation_error(phone)
+        cpf_error = _cpf_validation_error(cpf)
+        if phone_error:
+            self.error_message = phone_error
+            return
+        if cpf_error:
+            self.error_message = cpf_error
+            return
         self.is_submitting = True
         self.error_message = ""
         yield
@@ -258,8 +430,8 @@ class AuthState(rx.State):
             {
                 "name": form_data.get("name", "").strip(),
                 "email": form_data.get("email", "").strip(),
-                "phone": form_data.get("phone", "").strip(),
-                "cpf": form_data.get("cpf", "").strip(),
+                "phone": phone,
+                "cpf": cpf,
             },
         )
         if response is None:
@@ -276,7 +448,17 @@ class AuthState(rx.State):
         self.temporary_password = response.json().get("temporary_password", "")
         if not self.temporary_password:
             self.error_message = "A conta foi criada, mas a senha temporária não foi retornada. Contate o suporte."
+        self.professional_phone = ""
+        self.professional_cpf = ""
         self.is_submitting = False
+
+    @rx.event
+    def set_professional_phone(self, value: str):
+        self.professional_phone = _format_contact_phone(value)
+
+    @rx.event
+    def set_professional_cpf(self, value: str):
+        self.professional_cpf = _format_cpf(value)
 
     @rx.event
     def clear_temporary_password(self):
@@ -284,6 +466,7 @@ class AuthState(rx.State):
 
     @rx.event
     def logout(self):
+        self.clear_menu_success_messages()
         self._clear_session()
         return rx.redirect("/login")
 
@@ -426,6 +609,7 @@ class AuthState(rx.State):
 
     @rx.event
     async def require_service_access(self):
+        self.contact_success_message = ""
         if not self._auth_token:
             yield rx.redirect("/login")
             return
@@ -445,6 +629,331 @@ class AuthState(rx.State):
         yield
         await self._load_services()
 
+    @rx.var
+    def contact_page_count(self) -> int:
+        return max(1, ceil(self.contact_total_count / self.contact_page_size))
+
+    @rx.var
+    def contact_results_summary(self) -> str:
+        if not self.contacts:
+            return "Nenhum contato encontrado"
+        first = (self.contact_page - 1) * self.contact_page_size + 1
+        last = first + len(self.contacts) - 1
+        return f"Mostrando {first} – {last} de {self.contact_total_count} contatos"
+
+    @rx.event
+    def set_contact_search(self, value: str):
+        self.contact_search = value
+        self.contact_page = 1
+
+    @rx.event
+    async def set_contact_status_filter(self, value: str):
+        self.contact_status_filter = value
+        self.contact_page = 1
+        await self._load_contacts()
+
+    @rx.event
+    async def set_contact_source_filter(self, value: str):
+        self.contact_source_filter = value
+        self.contact_page = 1
+        await self._load_contacts()
+
+    @rx.event
+    async def previous_contact_page(self):
+        if self.contact_page > 1:
+            self.contact_page -= 1
+            await self._load_contacts()
+
+    @rx.event
+    async def next_contact_page(self):
+        if self.contact_page < self.contact_page_count:
+            self.contact_page += 1
+            await self._load_contacts()
+
+    async def _load_contacts(self):
+        self.contact_loading = True
+        self.contact_error_message = ""
+        payload: dict[str, Any] = {
+            "page": self.contact_page,
+            "page_size": self.contact_page_size,
+        }
+        if self.contact_search.strip():
+            payload["search"] = self.contact_search.strip()
+        if self.contact_status_filter != "Todos os status":
+            payload["status"] = "active" if self.contact_status_filter == "Ativos" else "inactive"
+        if self.contact_source_filter != "Todas as origens":
+            payload["source"] = CONTACT_SOURCE_VALUES.get(
+                self.contact_source_filter,
+                self.contact_source_filter,
+            )
+
+        response = await self._request(
+            "GET",
+            "contacts",
+            error_context="cadastro de contatos",
+            query_params=payload,
+        )
+        if response is None:
+            self.contact_error_message = self.error_message
+            self.contact_loading = False
+            return
+        if response.status_code != 200:
+            self.contact_error_message = _api_error_message(
+                response,
+                "Não foi possível carregar os contatos. Tente novamente.",
+            )
+            self.contact_loading = False
+            return
+        try:
+            result = response.json()
+            if isinstance(result, list):
+                raw_contacts = result
+                total_count = len(result)
+            elif isinstance(result, dict) and isinstance(result.get("items"), list):
+                raw_contacts = result["items"]
+                total_value = result.get(
+                    "total",
+                    result.get("itemsTotal", len(raw_contacts)),
+                )
+                total_count = int(
+                    len(raw_contacts) if total_value is None else total_value
+                )
+            else:
+                raise ValueError("A resposta de contatos não contém uma lista.")
+            if total_count < 0:
+                raise ValueError("A resposta de contatos contém uma contagem inválida.")
+            contacts = []
+            for item in raw_contacts:
+                if not isinstance(item, dict):
+                    raise ValueError("Um contato retornado possui formato inválido.")
+                if item.get("status") not in ("active", "inactive"):
+                    raise ValueError("Status de contato inválido.")
+                first_contact_at = _contact_date_iso_value(item["first_contact_at"])
+                if not first_contact_at:
+                    raise ValueError("Data do primeiro contato inválida.")
+                contacts.append(
+                    {
+                        "id": int(item["id"]),
+                        "name": str(item["name"]).strip(),
+                        "phone": _format_contact_phone(str(item["phone"]).strip()),
+                        "source": str(item["source"]),
+                        "source_display": CONTACT_SOURCE_LABELS.get(
+                            str(item["source"]),
+                            str(item["source"]),
+                        ),
+                        "notes": str(item.get("notes") or ""),
+                        "status": str(item["status"]),
+                        "first_contact_at": first_contact_at,
+                        "first_contact_display": _format_contact_date(first_contact_at),
+                    }
+                )
+        except (KeyError, TypeError, ValueError):
+            self.contact_error_message = (
+                "O cadastro retornou dados inválidos. Atualize a página ou contate o suporte."
+            )
+            self.contact_loading = False
+            return
+
+        self.contacts = contacts
+        self.contact_total_count = total_count
+        last_page = max(1, ceil(total_count / self.contact_page_size))
+        if self.contact_page > last_page:
+            self.contact_page = last_page
+            await self._load_contacts()
+            return
+        self.contact_loading = False
+
+    @rx.event
+    async def require_contact_access(self):
+        self.service_success_message = ""
+        if not self._auth_token:
+            yield rx.redirect("/login")
+            return
+        profile = await self._load_identity()
+        if profile is None:
+            yield rx.redirect("/login")
+            return
+        if profile.get("must_change_password", False):
+            yield rx.redirect("/change-password")
+            return
+        if profile.get("role") not in ("admin", "professional"):
+            yield rx.redirect("/app")
+            return
+        self.contact_status_filter = "Todos os status" if profile.get("role") == "admin" else "Ativos"
+        self.contact_loading = True
+        yield
+        await self._load_contacts()
+
+    @rx.event
+    async def refresh_contacts(self):
+        await self._load_contacts()
+
+    @rx.event
+    def start_new_contact(self):
+        self.contact_editing_id = 0
+        self.contact_form_name = ""
+        self.contact_form_phone = ""
+        self.contact_form_source = "WhatsApp"
+        self.contact_form_notes = ""
+        self.contact_form_first_contact_at = ""
+        self.contact_form_error = ""
+        self.contact_form_open = True
+
+    @rx.event
+    def start_edit_contact(self, contact_id: int):
+        contact = next((item for item in self.contacts if item["id"] == contact_id), None)
+        if contact is None:
+            self.contact_error_message = "O contato selecionado não está mais disponível."
+            return
+        self.contact_editing_id = contact_id
+        self.contact_form_name = contact["name"]
+        self.contact_form_phone = _format_contact_phone(contact["phone"])
+        self.contact_form_source = CONTACT_SOURCE_LABELS.get(
+            contact["source"],
+            contact["source"],
+        )
+        self.contact_form_notes = contact["notes"]
+        self.contact_form_first_contact_at = contact["first_contact_at"][:10]
+        self.contact_form_error = ""
+        self.contact_form_open = True
+
+    @rx.event
+    def cancel_contact_form(self):
+        self.contact_form_open = False
+        self.contact_form_error = ""
+
+    @rx.event
+    def set_contact_form_name(self, value: str):
+        self.contact_form_name = value
+
+    @rx.event
+    def set_contact_form_phone(self, value: str):
+        self.contact_form_phone = _format_contact_phone(value)
+
+    @rx.event
+    def set_contact_form_source(self, value: str):
+        self.contact_form_source = value
+
+    @rx.event
+    def set_contact_form_notes(self, value: str):
+        self.contact_form_notes = value
+
+    @rx.event
+    def set_contact_form_first_contact_at(self, value: str):
+        self.contact_form_first_contact_at = value
+
+    @rx.event
+    def request_contact_status(self, contact_id: int, status: str):
+        self.contact_confirming_id = contact_id
+        self.contact_confirming_status = status
+
+    @rx.event
+    def cancel_contact_status(self):
+        self.contact_confirming_id = 0
+        self.contact_confirming_status = ""
+
+    @rx.event
+    async def confirm_contact_status(self):
+        if not self.contact_confirming_id:
+            return
+        contact_id = self.contact_confirming_id
+        status = self.contact_confirming_status
+        self.contact_confirming_id = 0
+        self.contact_confirming_status = ""
+        await self.set_contact_status(contact_id, status)
+
+    @rx.event
+    async def save_contact(self, form_data: dict[str, Any]):
+        if not self._auth_token:
+            yield rx.redirect("/login")
+            return
+        if self.is_submitting:
+            return
+        self.is_submitting = True
+        self.contact_form_error = ""
+        name = str(form_data.get("name", "")).strip()
+        phone = str(form_data.get("phone", "")).strip()
+        notes = str(form_data.get("notes", "")).strip()
+        first_contact_at = str(form_data.get("first_contact_at", "")).strip()
+        source_label = str(form_data.get("source", ""))
+        source = CONTACT_SOURCE_VALUES.get(source_label)
+        phone_error = _contact_phone_validation_error(phone)
+        if not name:
+            self.contact_form_error = "Informe o nome do cliente."
+        elif len(name) > 120:
+            self.contact_form_error = "O nome deve ter no máximo 120 caracteres."
+        elif not phone:
+            self.contact_form_error = "Informe o telefone do cliente."
+        elif phone_error:
+            self.contact_form_error = phone_error
+        elif source is None:
+            self.contact_form_error = "Selecione uma origem válida."
+        elif not first_contact_at:
+            self.contact_form_error = "Informe a data do primeiro contato."
+        elif len(notes) > 1000:
+            self.contact_form_error = "As observações devem ter no máximo 1000 caracteres."
+        if self.contact_form_error:
+            self.is_submitting = False
+            return
+        payload = {
+            "name": name,
+            "phone": _normalize_contact_phone(phone),
+            "source": source,
+            "notes": notes,
+            "first_contact_at": first_contact_at,
+        }
+        path = (
+            f"contacts/{self.contact_editing_id}"
+            if self.contact_editing_id
+            else "contacts"
+        )
+        response = await self._request(
+            "PATCH" if self.contact_editing_id else "POST",
+            path,
+            payload,
+            "cadastro de contatos",
+        )
+        if response is None or response.status_code not in (200, 201):
+            self.contact_form_error = (
+                self.error_message
+                if response is None
+                else _api_error_message(response, "Não foi possível salvar o contato.")
+            )
+            self.is_submitting = False
+            return
+        self.contact_form_open = False
+        self.contact_success_message = (
+            "Contato atualizado com sucesso."
+            if self.contact_editing_id
+            else "Contato cadastrado com sucesso."
+        )
+        self.is_submitting = False
+        await self._load_contacts()
+
+    @rx.event
+    async def set_contact_status(self, contact_id: int, status: str):
+        if not self._auth_token:
+            return rx.redirect("/login")
+        response = await self._request(
+            "PATCH",
+            f"contacts/{contact_id}/status",
+            {"status": status},
+            "cadastro de contatos",
+        )
+        if response is None or response.status_code != 200:
+            self.contact_error_message = (
+                self.error_message
+                if response is None
+                else _api_error_message(response, "Não foi possível alterar o status.")
+            )
+            return
+        self.contact_success_message = (
+            "Contato ativado com sucesso."
+            if status == "active"
+            else "Contato desativado com sucesso."
+        )
+        await self._load_contacts()
+
     @rx.event
     async def refresh_services(self):
         self.service_loading = True
@@ -461,7 +970,6 @@ class AuthState(rx.State):
         self.service_form_price = ""
         self.service_form_duration = ""
         self.service_form_error = ""
-        self.service_success_message = ""
         self.service_form_open = True
 
     @rx.event
@@ -481,7 +989,6 @@ class AuthState(rx.State):
         self.service_form_price = service["price"]
         self.service_form_duration = str(service["duration_minutes"])
         self.service_form_error = ""
-        self.service_success_message = ""
         self.service_form_open = True
 
     @rx.event
@@ -536,7 +1043,6 @@ class AuthState(rx.State):
         self.is_submitting = True
         self.service_form_error = ""
         self.service_error_message = ""
-        self.service_success_message = ""
         yield
         is_editing = self.service_editing_id > 0
         method = "PATCH" if is_editing else "POST"
@@ -586,7 +1092,6 @@ class AuthState(rx.State):
 
         self.is_submitting = True
         self.service_error_message = ""
-        self.service_success_message = ""
         yield
         response = await self._request(
             "PATCH",
@@ -637,6 +1142,16 @@ def _brand() -> rx.Component:
         class_name="pc-brand",
         spacing="3",
         align="center",
+    )
+
+
+def _nav_icon(name: str) -> rx.Component:
+    return rx.icon(
+        name,
+        size=16,
+        stroke_width=1.8,
+        aria_hidden="true",
+        class_name="pc-nav-icon",
     )
 
 
@@ -843,6 +1358,7 @@ def _app_sidebar(active_route: str) -> rx.Component:
         rx.text("MENU PRINCIPAL", class_name="pc-sidebar-label"),
         rx.vstack(
             rx.link(
+                _nav_icon("layout-dashboard"),
                 rx.text("Visão geral"),
                 href="/app",
                 tab_index=0,
@@ -854,6 +1370,7 @@ def _app_sidebar(active_route: str) -> rx.Component:
                 ),
             ),
             rx.link(
+                _nav_icon("scissors"),
                 rx.text("Serviços"),
                 href="/services",
                 tab_index=0,
@@ -864,9 +1381,22 @@ def _app_sidebar(active_route: str) -> rx.Component:
                     else "pc-nav-link"
                 ),
             ),
+            rx.link(
+                _nav_icon("contact-round"),
+                rx.text("Clientes"),
+                href="/contacts",
+                tab_index=0,
+                aria_current="page" if active_route == "/contacts" else None,
+                class_name=(
+                    "pc-nav-link pc-nav-link-active"
+                    if active_route == "/contacts"
+                    else "pc-nav-link"
+                ),
+            ),
             rx.cond(
                 AuthState.role == "admin",
                 rx.link(
+                    _nav_icon("users-round"),
                     rx.text("Equipe"),
                     href="/team/new",
                     tab_index=0,
@@ -884,14 +1414,29 @@ def _app_sidebar(active_route: str) -> rx.Component:
             class_name="pc-nav",
         ),
         rx.vstack(
-            rx.text(AuthState.display_name, class_name="pc-sidebar-user"),
-            rx.text(
-                rx.cond(AuthState.role == "admin", "Administradora", "Profissional"),
-                class_name="pc-sidebar-role",
+            rx.hstack(
+                rx.icon(
+                    "circle-user-round",
+                    size=20,
+                    stroke_width=1.7,
+                    aria_hidden="true",
+                    class_name="pc-profile-icon",
+                ),
+                rx.vstack(
+                    rx.text(AuthState.display_name, class_name="pc-sidebar-user"),
+                    rx.text(
+                        rx.cond(AuthState.role == "admin", "Administradora", "Profissional"),
+                        class_name="pc-sidebar-role",
+                    ),
+                    spacing="1",
+                    align="start",
+                ),
+                class_name="pc-sidebar-profile-identity",
+                align="center",
             ),
             class_name="pc-sidebar-profile",
             align="start",
-            spacing="1",
+            spacing="0",
         ),
         class_name="pc-sidebar",
     )
@@ -920,6 +1465,8 @@ def _app_shell(content: rx.Component, active_route: str) -> rx.Component:
                             if active_route == "/app"
                             else "Serviços"
                             if active_route == "/services"
+                            else "Clientes e contatos"
+                            if active_route == "/contacts"
                             else "Equipe"
                         ),
                         class_name="pc-breadcrumb-current",
@@ -1029,8 +1576,11 @@ def create_professional_page() -> rx.Component:
                     id="professional-phone",
                     name="phone",
                     type="tel",
+                    value=AuthState.professional_phone,
+                    on_change=AuthState.set_professional_phone,
                     placeholder="(00) 00000-0000",
                     required=True,
+                    max_length=20,
                     class_name="pc-input",
                     width="100%",
                 ),
@@ -1043,8 +1593,11 @@ def create_professional_page() -> rx.Component:
                 rx.input(
                     id="professional-cpf",
                     name="cpf",
+                    value=AuthState.professional_cpf,
+                    on_change=AuthState.set_professional_cpf,
                     placeholder="000.000.000-00",
                     required=True,
+                    max_length=14,
                     class_name="pc-input",
                     width="100%",
                 ),
@@ -1584,8 +2137,398 @@ def service_catalog_page() -> rx.Component:
     return _app_shell(content, "/services")
 
 
+def _contact_row(contact: Any) -> rx.Component:
+    return rx.el.article(
+        rx.vstack(
+            rx.text(contact["name"], class_name="pc-service-name"),
+            rx.text(contact["phone"], class_name="pc-service-description"),
+            spacing="1",
+            align="start",
+            class_name="pc-service-primary",
+        ),
+        rx.text(
+            contact["source_display"],
+            class_name="pc-service-column",
+            data_label="Origem",
+        ),
+        rx.text(
+            contact["first_contact_display"],
+            class_name="pc-service-column",
+            data_label="Primeiro contato",
+        ),
+        rx.cond(
+            contact["status"] == "active",
+            rx.text("Ativo", class_name="pc-service-status pc-service-status-active"),
+            rx.text("Inativo", class_name="pc-service-status pc-service-status-inactive"),
+        ),
+        rx.cond(
+            AuthState.contact_confirming_id == contact["id"],
+            rx.hstack(
+                rx.text("Confirmar?", class_name="pc-service-readonly"),
+                rx.button(
+                    "Sim",
+                    type="button",
+                    on_click=AuthState.confirm_contact_status,
+                    class_name="pc-service-action pc-service-toggle",
+                ),
+                rx.button(
+                    "Não",
+                    type="button",
+                    on_click=AuthState.cancel_contact_status,
+                    class_name="pc-service-action pc-service-edit",
+                ),
+                class_name="pc-service-actions",
+                spacing="3",
+            ),
+            rx.hstack(
+                rx.button(
+                    "Editar",
+                    type="button",
+                    on_click=AuthState.start_edit_contact(contact["id"]),
+                    class_name="pc-service-action pc-service-edit",
+                ),
+                rx.button(
+                    rx.cond(contact["status"] == "active", "Desativar", "Ativar"),
+                    type="button",
+                    disabled=AuthState.is_submitting,
+                    on_click=AuthState.request_contact_status(
+                        contact["id"],
+                        rx.cond(contact["status"] == "active", "inactive", "active"),
+                    ),
+                    class_name="pc-service-action pc-service-toggle",
+                ),
+                class_name="pc-service-actions",
+                spacing="3",
+            ),
+        ),
+        class_name="pc-service-row",
+    )
+
+
+def _contact_form() -> rx.Component:
+    return rx.el.section(
+        rx.vstack(
+            rx.heading(
+                rx.cond(
+                    AuthState.contact_editing_id > 0,
+                    "Editar cliente",
+                    "Novo cliente",
+                ),
+                class_name="pc-service-form-title",
+            ),
+            rx.text(
+                "Campos marcados com * são obrigatórios. O cliente não terá acesso ao painel.",
+                class_name="pc-card-description",
+            ),
+            rx.form(
+                rx.vstack(
+                    rx.vstack(
+                        rx.el.label("Nome *", html_for="contact-name", class_name="pc-field-label"),
+                        rx.input(
+                            id="contact-name",
+                            name="name",
+                            value=AuthState.contact_form_name,
+                            on_change=AuthState.set_contact_form_name,
+                            placeholder="Nome completo",
+                            required=True,
+                            max_length=120,
+                            class_name="pc-input",
+                            width="100%",
+                        ),
+                        class_name="pc-field",
+                        align="stretch",
+                        spacing="2",
+                    ),
+                    rx.vstack(
+                        rx.el.label("Telefone *", html_for="contact-phone", class_name="pc-field-label"),
+                        rx.input(
+                            id="contact-phone",
+                            type="tel",
+                            name="phone",
+                            value=AuthState.contact_form_phone,
+                            on_change=AuthState.set_contact_form_phone,
+                            placeholder="(00) 00000-0000",
+                            required=True,
+                            max_length=20,
+                            class_name="pc-input",
+                            width="100%",
+                        ),
+                        class_name="pc-field",
+                        align="stretch",
+                        spacing="2",
+                    ),
+                    rx.hstack(
+                        rx.vstack(
+                            rx.el.label("Origem *", html_for="contact-source", class_name="pc-field-label"),
+                            rx.select(
+                                list(CONTACT_SOURCE_LABELS.values()),
+                                id="contact-source",
+                                name="source",
+                                value=AuthState.contact_form_source,
+                                on_change=AuthState.set_contact_form_source,
+                                required=True,
+                                class_name="pc-service-filter",
+                                width="100%",
+                            ),
+                            class_name="pc-field",
+                            align="stretch",
+                            spacing="2",
+                            width="100%",
+                        ),
+                        rx.vstack(
+                            rx.el.label(
+                                "Primeiro contato *",
+                                html_for="contact-first-contact",
+                                class_name="pc-field-label",
+                            ),
+                            rx.input(
+                                id="contact-first-contact",
+                                name="first_contact_at",
+                                type="date",
+                                value=AuthState.contact_form_first_contact_at,
+                                on_change=AuthState.set_contact_form_first_contact_at,
+                                required=True,
+                                class_name="pc-input",
+                                width="100%",
+                            ),
+                            class_name="pc-field",
+                            align="stretch",
+                            spacing="2",
+                            width="100%",
+                        ),
+                        width="100%",
+                        spacing="3",
+                    ),
+                    rx.vstack(
+                        rx.el.label("Observações", html_for="contact-notes", class_name="pc-field-label"),
+                        rx.text_area(
+                            id="contact-notes",
+                            name="notes",
+                            value=AuthState.contact_form_notes,
+                            on_change=AuthState.set_contact_form_notes,
+                            max_length=1000,
+                            placeholder="Informações úteis para a equipe",
+                            class_name="pc-input",
+                            width="100%",
+                        ),
+                        class_name="pc-field",
+                        align="stretch",
+                        spacing="2",
+                    ),
+                    rx.cond(
+                        AuthState.contact_form_error != "",
+                        rx.text(
+                            AuthState.contact_form_error,
+                            role="alert",
+                            class_name="pc-service-error-text",
+                        ),
+                        rx.fragment(),
+                    ),
+                    rx.hstack(
+                        rx.button(
+                            "Cancelar",
+                            type="button",
+                            on_click=AuthState.cancel_contact_form,
+                            class_name="pc-button pc-button-secondary",
+                        ),
+                        rx.button(
+                            rx.cond(AuthState.is_submitting, "Salvando...", "Salvar contato"),
+                            type="submit",
+                            disabled=AuthState.is_submitting,
+                            class_name="pc-button pc-button-primary",
+                        ),
+                        spacing="3",
+                    ),
+                    width="100%",
+                    spacing="4",
+                ),
+                on_submit=AuthState.save_contact,
+                reset_on_submit=False,
+                width="100%",
+                class_name="pc-form",
+            ),
+            width="100%",
+            align="start",
+            spacing="3",
+        ),
+        class_name="pc-service-form-panel",
+    )
+
+
+def contact_catalog_page() -> rx.Component:
+    content = rx.vstack(
+        rx.box(
+            rx.vstack(
+                rx.text("GESTÃO DA BARBEARIA", class_name="pc-eyebrow"),
+                rx.heading("Clientes e contatos", class_name="pc-page-title"),
+                rx.text(
+                    "Mantenha uma base compartilhada para toda a equipe.",
+                    class_name="pc-page-description",
+                ),
+                align="start",
+                spacing="2",
+            ),
+            rx.button(
+                rx.text("+", aria_hidden="true"),
+                "Novo cliente",
+                type="button",
+                on_click=AuthState.start_new_contact,
+                class_name="pc-button pc-button-primary pc-new-service-button",
+            ),
+            class_name="pc-catalog-header",
+        ),
+        rx.cond(AuthState.contact_form_open, _contact_form(), rx.fragment()),
+        rx.cond(
+            AuthState.contact_success_message != "",
+            rx.text(
+                AuthState.contact_success_message,
+                role="status",
+                class_name="pc-service-success",
+            ),
+            rx.fragment(),
+        ),
+        rx.cond(
+            AuthState.contact_error_message != "",
+            rx.hstack(
+                rx.text(AuthState.contact_error_message, role="alert", class_name="pc-service-error-text"),
+                rx.button(
+                    "Tentar novamente",
+                    type="button",
+                    on_click=AuthState.refresh_contacts,
+                    class_name="pc-service-action pc-service-edit",
+                ),
+                class_name="pc-service-error",
+                align="center",
+                justify="between",
+                width="100%",
+            ),
+            rx.fragment(),
+        ),
+        rx.el.section(
+            rx.vstack(
+                rx.hstack(
+                    rx.vstack(
+                        rx.heading("Base de clientes", class_name="pc-catalog-title"),
+                        rx.text(AuthState.contact_results_summary, class_name="pc-catalog-description"),
+                        align="start",
+                        spacing="1",
+                    ),
+                    rx.spacer(),
+                    rx.input(
+                        type="search",
+                        aria_label="Buscar cliente por nome ou telefone",
+                        placeholder="Buscar cliente...",
+                        value=AuthState.contact_search,
+                        on_change=AuthState.set_contact_search,
+                        on_blur=AuthState.refresh_contacts,
+                        class_name="pc-service-search",
+                    ),
+                    rx.select(
+                        rx.cond(
+                            AuthState.role == "admin",
+                            ["Todos os status", "Ativos", "Inativos"],
+                            ["Ativos"],
+                        ),
+                        value=AuthState.contact_status_filter,
+                        on_change=AuthState.set_contact_status_filter,
+                        class_name="pc-service-filter",
+                    ),
+                    rx.select(
+                        [
+                            "Todas as origens",
+                            *CONTACT_SOURCE_LABELS.values(),
+                        ],
+                        value=AuthState.contact_source_filter,
+                        on_change=AuthState.set_contact_source_filter,
+                        class_name="pc-service-filter",
+                    ),
+                    class_name="pc-catalog-tools",
+                    align="center",
+                    spacing="3",
+                    width="100%",
+                ),
+                rx.box(
+                    rx.text("CLIENTE", class_name="pc-service-table-heading"),
+                    rx.text("ORIGEM", class_name="pc-service-table-heading"),
+                    rx.text("PRIMEIRO CONTATO", class_name="pc-service-table-heading"),
+                    rx.text("STATUS", class_name="pc-service-table-heading"),
+                    rx.text("AÇÕES", class_name="pc-service-table-heading"),
+                    class_name="pc-service-table-head",
+                ),
+                rx.cond(
+                    AuthState.contact_loading,
+                    rx.text("Carregando contatos...", role="status", class_name="pc-service-empty"),
+                    rx.cond(
+                        AuthState.contacts.length() == 0,
+                        rx.vstack(
+                            rx.text("Nenhum cliente encontrado.", class_name="pc-service-empty-title"),
+                            rx.button(
+                                "Cadastrar o primeiro cliente",
+                                type="button",
+                                on_click=AuthState.start_new_contact,
+                                class_name="pc-button pc-button-primary",
+                            ),
+                            class_name="pc-service-empty",
+                            align="center",
+                            spacing="3",
+                        ),
+                        rx.vstack(
+                            rx.foreach(AuthState.contacts, _contact_row),
+                            width="100%",
+                            spacing="0",
+                        ),
+                    ),
+                ),
+                rx.hstack(
+                    rx.button(
+                        "Anterior",
+                        type="button",
+                        disabled=(AuthState.contact_page <= 1) | AuthState.contact_loading,
+                        on_click=AuthState.previous_contact_page,
+                        class_name="pc-button pc-button-secondary pc-page-button",
+                    ),
+                    rx.text(
+                        "Página ",
+                        AuthState.contact_page,
+                        " de ",
+                        AuthState.contact_page_count,
+                        class_name="pc-service-page-indicator",
+                    ),
+                    rx.button(
+                        "Próxima",
+                        type="button",
+                        disabled=(AuthState.contact_page >= AuthState.contact_page_count)
+                        | AuthState.contact_loading,
+                        on_click=AuthState.next_contact_page,
+                        class_name="pc-button pc-button-secondary pc-page-button",
+                    ),
+                    class_name="pc-service-pagination",
+                    align="center",
+                    justify="end",
+                    width="100%",
+                    spacing="3",
+                ),
+                width="100%",
+                align="stretch",
+                spacing="3",
+            ),
+            class_name="pc-catalog-content",
+        ),
+        width="100%",
+        align="stretch",
+        spacing="4",
+        class_name="pc-team-content",
+    )
+    return _app_shell(content, "/contacts")
+
+
 def register_pages(app: rx.App):
-    app.add_page(login_page, route="/login", title="Entrar | Lotus Barber")
+    app.add_page(
+        login_page,
+        route="/login",
+        title="Entrar | Lotus Barber",
+        on_load=AuthState.clear_menu_success_messages,
+    )
     app.add_page(
         change_password_page,
         route="/change-password",
@@ -1610,4 +2553,15 @@ def register_pages(app: rx.App):
         title="Serviços | Lotus Barber",
         on_load=AuthState.require_service_access,
     )
-    app.add_page(login_page, route="/", title="Entrar | Lotus Barber")
+    app.add_page(
+        contact_catalog_page,
+        route="/contacts",
+        title="Clientes e contatos | Lotus Barber",
+        on_load=AuthState.require_contact_access,
+    )
+    app.add_page(
+        login_page,
+        route="/",
+        title="Entrar | Lotus Barber",
+        on_load=AuthState.clear_menu_success_messages,
+    )
