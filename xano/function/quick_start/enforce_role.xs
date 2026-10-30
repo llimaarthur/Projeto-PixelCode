@@ -26,7 +26,7 @@ function "Quick Start/enforce_role" {
       error = "User not found with the provided ID."
     }
 
-    precondition ($user.status == "active") {
+    precondition ($user.status == "active" || $user.status == "enabled") {
       error_type = "accessdenied"
       error = "User account is inactive."
     }

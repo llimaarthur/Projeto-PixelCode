@@ -177,19 +177,78 @@ def _configured_api_url(variable_name: str) -> str:
     if value:
         return value.rstrip("/")
 
-    env_file = Path(__file__).resolve().parents[1] / ".env"
-    try:
-        for line in env_file.read_text(encoding="utf-8").splitlines():
-            key, separator, configured_value = line.partition("=")
-            if separator and key.strip() == variable_name:
-                return configured_value.strip().strip("\"'").rstrip("/")
-    except OSError:
-        return ""
+    env_files = [
+        Path(__file__).resolve().parents[1] / ".env",
+        Path(__file__).resolve().parents[2] / ".env",
+        Path.cwd() / ".env",
+    ]
+    seen_paths: set[Path] = set()
+    for env_file in env_files:
+        if env_file in seen_paths or not env_file.exists():
+            continue
+        seen_paths.add(env_file)
+        try:
+            for line in env_file.read_text(encoding="utf-8").splitlines():
+                key, separator, configured_value = line.partition("=")
+                if separator and key.strip() == variable_name:
+                    return configured_value.strip().strip("\"'").rstrip("/")
+        except OSError:
+            continue
     return ""
 
 
+def _first_matching_value(payload: Any, *keys: str) -> Any:
+    if isinstance(payload, dict):
+        for key in keys:
+            if key in payload and payload[key] not in (None, ""):
+                return payload[key]
+            key_lower = key.lower()
+            for candidate_key, candidate_value in payload.items():
+                if isinstance(candidate_key, str) and candidate_key.lower() == key_lower:
+                    if candidate_value not in (None, ""):
+                        return candidate_value
+        for nested_key in ("data", "user", "profile", "result", "session", "auth"):
+            nested = payload.get(nested_key)
+            value = _first_matching_value(nested, *keys)
+            if value is not None:
+                return value
+    elif isinstance(payload, list):
+        for item in payload:
+            value = _first_matching_value(item, *keys)
+            if value is not None:
+                return value
+    return None
+
+
+def _as_bool(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return bool(value)
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        return normalized in {"1", "true", "yes", "y", "active", "enabled"}
+    return False
+
+
+def _profile_requires_password_change(profile: Any) -> bool:
+    if not isinstance(profile, dict):
+        return False
+    return _as_bool(
+        _first_matching_value(
+            profile,
+            "must_change_password",
+            "mustChangePassword",
+            "force_password_change",
+            "forcePasswordChange",
+            "password_change_required",
+            "passwordChangeRequired",
+        )
+    )
+
+
 class AuthState(rx.State):
-    _auth_token: str = ""
+    _auth_token: str = rx.LocalStorage("", name="pixelcode_auth_token", sync=True)
 
     display_name: str = ""
     role: str = ""
@@ -277,6 +336,8 @@ class AuthState(rx.State):
         self.display_name = ""
         self.role = ""
         self.temporary_password = ""
+        self.error_message = ""
+        self.is_submitting = False
 
     @rx.event
     def clear_menu_success_messages(self):
@@ -286,12 +347,21 @@ class AuthState(rx.State):
     async def _load_identity(self) -> dict | None:
         response = await self._request("GET", "auth/me")
         if response is None or response.status_code != 200:
-            self._clear_session()
             return None
 
-        profile = response.json()
-        self.display_name = profile.get("name", "")
-        self.role = profile.get("role", "")
+        try:
+            profile = response.json()
+        except ValueError:
+            return None
+
+        if not isinstance(profile, dict):
+            return None
+        profile = profile.get("user") if isinstance(profile.get("user"), dict) else profile
+        profile = profile.get("data") if isinstance(profile.get("data"), dict) else profile
+        if not isinstance(profile, dict):
+            return None
+        self.display_name = str(_first_matching_value(profile, "name", "display_name") or "")
+        self.role = str(_first_matching_value(profile, "role") or "").strip().lower()
         return profile
 
     @rx.event
@@ -319,11 +389,35 @@ class AuthState(rx.State):
             return
 
         result = response.json()
-        self._auth_token = result.get("authToken", "")
-        self.display_name = result.get("name", "")
-        self.role = result.get("role", "")
+        if not isinstance(result, dict):
+            self.error_message = "Resposta do login inválida. Verifique o backend e a conta informada."
+            self.is_submitting = False
+            return
+
+        token = _first_matching_value(
+            result,
+            "authToken",
+            "auth_token",
+            "token",
+            "access_token",
+            "accessToken",
+            "jwt",
+        )
+        user_payload = result.get("user") if isinstance(result.get("user"), dict) else {}
+        profile_payload = result.get("profile") if isinstance(result.get("profile"), dict) else {}
+        data_payload = result.get("data") if isinstance(result.get("data"), dict) else {}
+        login_profile = user_payload or profile_payload or data_payload or result
+
+        self._auth_token = str(token) if token not in (None, "") else ""
+        self.display_name = str(_first_matching_value(login_profile, "name", "display_name") or "")
+        self.role = str(_first_matching_value(login_profile, "role") or "").strip().lower()
         self.is_submitting = False
-        if result.get("must_change_password", False):
+
+        if not self._auth_token:
+            self.error_message = "Resposta do login inválida. Verifique o backend e a conta informada."
+            return
+
+        if _profile_requires_password_change(login_profile):
             yield rx.redirect("/change-password")
             return
         yield rx.redirect("/app")
@@ -335,8 +429,9 @@ class AuthState(rx.State):
             return rx.redirect("/login")
         profile = await self._load_identity()
         if profile is None:
+            self._clear_session()
             return rx.redirect("/login")
-        if profile.get("must_change_password", False):
+        if _profile_requires_password_change(profile):
             return rx.redirect("/change-password")
 
     @rx.event
@@ -346,8 +441,9 @@ class AuthState(rx.State):
             return rx.redirect("/login")
         profile = await self._load_identity()
         if profile is None:
+            self._clear_session()
             return rx.redirect("/login")
-        if profile.get("must_change_password", False):
+        if _profile_requires_password_change(profile):
             return rx.redirect("/change-password")
         return rx.redirect("/app")
 
@@ -358,8 +454,9 @@ class AuthState(rx.State):
             return rx.redirect("/login")
         profile = await self._load_identity()
         if profile is None:
+            self._clear_session()
             return rx.redirect("/login")
-        if not profile.get("must_change_password", False):
+        if not _profile_requires_password_change(profile):
             return rx.redirect("/app")
 
     @rx.event
@@ -370,10 +467,11 @@ class AuthState(rx.State):
             return rx.redirect("/login")
         profile = await self._load_identity()
         if profile is None:
+            self._clear_session()
             return rx.redirect("/login")
-        if profile.get("must_change_password", False):
+        if _profile_requires_password_change(profile):
             return rx.redirect("/change-password")
-        if profile.get("role") != "admin":
+        if str(profile.get("role") or "").strip().lower() != "admin":
             return rx.redirect("/app")
 
     @rx.event
@@ -429,7 +527,7 @@ class AuthState(rx.State):
             "auth/professionals",
             {
                 "name": form_data.get("name", "").strip(),
-                "email": form_data.get("email", "").strip(),
+                "email": form_data.get("email", "").strip().lower(),
                 "phone": phone,
                 "cpf": cpf,
             },
@@ -451,6 +549,7 @@ class AuthState(rx.State):
         self.professional_phone = ""
         self.professional_cpf = ""
         self.is_submitting = False
+        yield rx.call_script("document.getElementById('professional-form').reset()")
 
     @rx.event
     def set_professional_phone(self, value: str):
@@ -615,14 +714,15 @@ class AuthState(rx.State):
             return
         profile = await self._load_identity()
         if profile is None:
+            self._clear_session()
             yield rx.redirect("/login")
             return
-        if profile.get("must_change_password", False):
+        if _profile_requires_password_change(profile):
             yield rx.redirect("/change-password")
             return
         self.service_status_filter = (
             "Todos os status"
-            if profile.get("role") == "admin"
+            if str(profile.get("role") or "").strip().lower() == "admin"
             else "Ativos"
         )
         self.service_loading = True
@@ -771,15 +871,17 @@ class AuthState(rx.State):
             return
         profile = await self._load_identity()
         if profile is None:
+            self._clear_session()
             yield rx.redirect("/login")
             return
-        if profile.get("must_change_password", False):
+        if _profile_requires_password_change(profile):
             yield rx.redirect("/change-password")
             return
-        if profile.get("role") not in ("admin", "professional"):
+        role = str(profile.get("role") or "").strip().lower()
+        if role not in ("admin", "professional"):
             yield rx.redirect("/app")
             return
-        self.contact_status_filter = "Todos os status" if profile.get("role") == "admin" else "Ativos"
+        self.contact_status_filter = "Todos os status" if role == "admin" else "Ativos"
         self.contact_loading = True
         yield
         await self._load_contacts()
@@ -1626,9 +1728,10 @@ def create_professional_page() -> rx.Component:
             spacing="4",
         ),
         on_submit=AuthState.create_professional,
-        reset_on_submit=True,
+        reset_on_submit=False,
         width="100%",
         class_name="pc-form",
+        id="professional-form",
     )
     content = rx.vstack(
         rx.text("GESTÃO DA EQUIPE", class_name="pc-eyebrow"),

@@ -15,7 +15,7 @@ query "auth/change-temporary-password" verb=POST {
       output = ["id", "status", "must_change_password"]
     } as $user
 
-    precondition ($user != null && $user.status == "active") {
+    precondition ($user != null && ($user.status == "active" || $user.status == "enabled")) {
       error_type = "accessdenied"
       error = "Active professional account required."
     }

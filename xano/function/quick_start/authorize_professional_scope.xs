@@ -12,7 +12,7 @@ function "Quick Start/authorize_professional_scope" {
       output = ["id", "role", "status", "must_change_password"]
     } as $actor
 
-    precondition ($actor != null && $actor.status == "active") {
+    precondition ($actor != null && ($actor.status == "active" || $actor.status == "enabled")) {
       error_type = "accessdenied"
       error = "Active professional account required."
     }

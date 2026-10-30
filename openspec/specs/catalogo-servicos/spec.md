@@ -84,7 +84,7 @@ O sistema SHALL permitir ao administrador ativar e desativar serviços sem exclu
 
 ### Requirement: Interface do catálogo no painel interno
 
-O painel Reflex SHALL disponibilizar ao administrador a listagem e manutenção do catálogo e SHALL apresentar estados de carregamento, erro e lista vazia. A interface SHALL apresentar validações e feedback da API sem substituir as validações e permissões do backend. Mensagens de sucesso SHALL permanecer visíveis enquanto o usuário continuar no menu de serviços e SHALL ser limpas ao sair desse menu.
+O painel Reflex SHALL disponibilizar ao administrador a listagem e manutenção do catálogo e SHALL apresentar estados de carregamento, erro e lista vazia. A interface SHALL apresentar validações e feedback da API sem substituir as validações e permissões do backend. Mensagens de sucesso SHALL permanecer visíveis enquanto o usuário continuar no menu de serviços e SHALL ser limpas ao sair desse menu. O frontend SHALL consultar e enviar alterações ao grupo de APIs `Services` configurado para o ambiente.
 
 #### Scenario: Carregamento do catálogo
 
@@ -100,6 +100,11 @@ O painel Reflex SHALL disponibilizar ao administrador a listagem e manutenção 
 
 - **WHEN** a API rejeita ou não conclui a solicitação
 - **THEN** a interface informa a falha, mantém os dados editados ainda não confirmados e não apresenta mensagem de sucesso
+
+#### Scenario: Administrador consulta e cadastra serviços
+
+- **WHEN** um administrador abre o catálogo e envia um serviço com dados válidos
+- **THEN** o frontend alcança o grupo `Services` configurado, exibe os serviços retornados e confirma o cadastro bem-sucedido
 
 #### Scenario: Profissional acessa a tela do catálogo
 

@@ -35,7 +35,7 @@ query "reset/magic-link-login" verb=POST {
       ]
     } as $user
 
-    precondition ($user != null && $user.status == "active") {
+    precondition ($user != null && ($user.status == "active" || $user.status == "enabled")) {
       error_type = "unauthorized"
       error = "Invalid credentials."
     }

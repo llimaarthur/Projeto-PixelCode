@@ -20,10 +20,9 @@ query "auth/professionals" verb=POST {
       error = "Name, email, phone, and CPF are required."
     }
 
-    db.get user {
-      field_name = "email"
-      field_value = $input.email
-      output = ["id"]
+    db.query user {
+      where = $db.user.email == $input.email
+      return = {type: "single"}
     } as $existing_user
 
     precondition ($existing_user == null) {

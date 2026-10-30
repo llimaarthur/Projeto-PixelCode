@@ -14,7 +14,7 @@ query "auth/me" verb=GET {
       output = ["id", "created_at", "name", "email", "phone", "role", "status", "must_change_password"]
     } as $user
 
-    precondition ($user.status == "active") {
+    precondition ($user.status == "active" || $user.status == "enabled") {
       error_type = "accessdenied"
       error = "User account is inactive."
     }

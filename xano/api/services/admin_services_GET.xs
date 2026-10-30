@@ -18,7 +18,7 @@ query "services/admin" verb=GET {
       error = "Invalid authenticated user."
     }
 
-    precondition ($user.status == "active") {
+    precondition ($user.status == "active" || $user.status == "enabled") {
       error_type = "accessdenied"
       error = "User account is inactive."
     }

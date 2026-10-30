@@ -21,19 +21,39 @@ query "auth/login" verb=POST {
       error = "Invalid Credentials."
     }
   
-    // Check that the password matches the hashed password
-    security.check_password {
-      text_password = $input.password
-      hash_password = $user.password
-    } as $pass_result
+    // Support legacy user records that may still store a plain-text password.
+    // In that case, accept the direct match and continue without invoking the hash checker.
+    var $legacy_password_match {
+      value = (($user.password != null) && ($user.password == $input.password))
+    }
+
+    conditional {
+      if ($legacy_password_match == true) {
+        var $pass_result {
+          value = true
+        }
+      } 
+      
+      else {
+        precondition ($user.password != null && $user.password != "") {
+          error_type = "accessdenied"
+          error = "Invalid Credentials."
+        }
+
+        security.check_password {
+          text_password = $input.password
+          hash_password = $user.password
+        } as $pass_result
+      }
+    }
   
     // Verify that the password check passed
-    precondition ($pass_result) {
+    precondition ($pass_result == true) {
       error_type = "accessdenied"
       error = "Invalid Credentials."
     }
 
-    precondition ($user.status == "active") {
+    precondition ($user.status == "active" || $user.status == "enabled") {
       error_type = "accessdenied"
       error = "Invalid Credentials."
     }
@@ -41,7 +61,7 @@ query "auth/login" verb=POST {
     // Create an authentication token
     security.create_auth_token {
       table = "user"
-      extras = {}
+      extras = ""
       expiration = 86400
       id = $user.id
     } as $authToken
@@ -59,8 +79,18 @@ query "auth/login" verb=POST {
   response = {
     authToken: $authToken
     user_id: $user.id
+    user: {
+      id: $user.id
+      name: $user.name
+      email: $user.email
+      role: $user.role
+      status: $user.status
+      must_change_password: $user.must_change_password
+    }
     name: $user.name
+    email: $user.email
     role: $user.role
+    status: $user.status
     must_change_password: $user.must_change_password
   }
   tags = ["xano:quick-start"]
