@@ -20,4 +20,5 @@ table service {
     {type: "btree", field: [{name: "status", op: "asc"}]}
     {type: "btree", field: [{name: "name", op: "asc"}]}
   ]
+  guid = "a-Ix-QInd464L_CP9nFriZwtt-A"
 }

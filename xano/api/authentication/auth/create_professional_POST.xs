@@ -36,13 +36,46 @@ query "auth/professionals" verb=POST {
       value = "TmpA1-" ~ $temporary_secret
     }
 
+    var $normalized_phone {
+      value = $input.phone|regex_replace:"[^0-9]":""
+    }
+
+    var $normalized_cpf {
+      value = $input.cpf|regex_replace:"[^0-9]":""
+    }
+
+    precondition (($normalized_phone|strlen) == 10 || ($normalized_phone|strlen) == 11) {
+      error_type = "inputerror"
+      error = "Informe um telefone com DDD e 10 ou 11 dígitos."
+    }
+
+    db.query user {
+      where = $db.user.cpf == $normalized_cpf
+      return = {type: "single"}
+    } as $existing_cpf
+
+    precondition ($existing_cpf == null) {
+      error_type = "inputerror"
+      error = "Já existe um cadastro com este CPF."
+    }
+
+    db.query contact {
+      where = $db.contact.cpf_normalized == $normalized_cpf
+      return = {type: "list"}
+    } as $existing_contact_cpf
+
+    precondition (($existing_contact_cpf|count) == 0) {
+      error_type = "inputerror"
+      error = "Já existe um cadastro com este CPF."
+    }
+
     db.add user {
       data = {
         created_at            : "now"
         name                  : $input.name
         email                 : $input.email
-        phone                 : $input.phone
-        cpf                   : $input.cpf
+        phone                 : $normalized_phone
+        cpf                   : $normalized_cpf
         password              : $temporary_password
         role                  : "professional"
         status                : "active"

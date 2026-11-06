@@ -47,6 +47,7 @@ query "contacts" verb=GET {
         array.filter ($filtered_by_fields) if (
           $this.name|lower|contains:($input.search|lower)
           || ($normalized_search != "" && $this.phone_normalized|contains:$normalized_search)
+          || ($normalized_search != "" && $this.cpf_normalized != null && $this.cpf_normalized|contains:$normalized_search)
         ) as $matching_contacts
       }
     }

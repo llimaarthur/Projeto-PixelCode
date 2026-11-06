@@ -9,6 +9,9 @@ table user {
     email email filters=trim|lower
     text phone filters=trim
     text cpf filters=trim
+    image? profile_photo?
+    text profile_photo_url?
+    text profile_photo_public_id?
     password password filters=min:8|minAlpha:1|minDigit:1
   
     // The role of the user within their company (e.g., 'admin', 'member').

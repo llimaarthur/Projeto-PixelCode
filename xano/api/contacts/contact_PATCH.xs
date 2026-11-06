@@ -6,6 +6,9 @@ query "contacts/{contact_id}" verb=PATCH {
     int contact_id
     text name filters=trim
     text phone filters=trim
+    text cpf? filters=trim
+    text birth_date? filters=trim
+    email email? filters=trim|lower
     enum source {
       values = ["whatsapp", "indicacao", "instagram", "ligacao", "outra"]
     }
@@ -29,7 +32,19 @@ query "contacts/{contact_id}" verb=PATCH {
     }
 
     var $normalized_phone {
-      value = $input.phone
+      value = $input.phone|regex_replace:"[^0-9]":""
+    }
+
+    var $normalized_cpf {
+      value = $existing_contact.cpf
+    }
+
+    conditional {
+      if ($input.cpf != null && $input.cpf != "") {
+        var.update $normalized_cpf {
+          value = $input.cpf|regex_replace:"[^0-9]":""
+        }
+      }
     }
 
     precondition ($input.name != "" && ($input.name|strlen) <= 120) {
@@ -42,7 +57,25 @@ query "contacts/{contact_id}" verb=PATCH {
       error = "Informe um telefone válido."
     }
 
-    precondition ($input.first_contact_at <= "now") {
+    precondition ($input.birth_date == null || $input.birth_date == "" || ($input.birth_date|strlen) == 10) {
+      error_type = "inputerror"
+      error = "Informe uma data de nascimento válida."
+    }
+
+    precondition ($input.birth_date == null || $input.birth_date == "" || $input.birth_date <= (now|format_timestamp:"Y-m-d":"America/Sao_Paulo")) {
+      error_type = "inputerror"
+      error = "A data de nascimento não pode estar no futuro."
+    }
+
+    precondition ($input.email == null || $input.email == "" || (($input.email|strlen) <= 254 && $input.email|contains:"@" && $input.email|contains:".")) {
+      error_type = "inputerror"
+      error = "Informe um e-mail válido."
+    }
+
+    precondition (
+      ($input.first_contact_at|format_timestamp:"Y-m-d":"America/Sao_Paulo")
+      <= (now|format_timestamp:"Y-m-d":"America/Sao_Paulo")
+    ) {
       error_type = "inputerror"
       error = "A data do primeiro contato não pode estar no futuro."
     }
@@ -53,13 +86,37 @@ query "contacts/{contact_id}" verb=PATCH {
     }
 
     db.query contact {
-      where = $db.contact.phone_normalized == $normalized_phone && $db.contact.status == "active" && $db.contact.id != $input.contact_id
+      where = $db.contact.phone_normalized == $normalized_phone && $db.contact.id != $input.contact_id
       return = {type: "list"}
     } as $duplicates
 
     precondition (($duplicates|count) == 0) {
       error_type = "inputerror"
       error = "Este telefone já está cadastrado."
+    }
+
+    conditional {
+      if ($input.cpf != null && $input.cpf != "" && $normalized_cpf != "") {
+        db.query contact {
+          where = $db.contact.cpf_normalized == $normalized_cpf && $db.contact.id != $input.contact_id
+          return = {type: "list"}
+        } as $cpf_duplicates
+
+        precondition (($cpf_duplicates|count) == 0) {
+          error_type = "inputerror"
+          error = "Já existe um cadastro com este CPF."
+        }
+
+        db.query user {
+          where = $db.user.cpf == $normalized_cpf
+          return = {type: "list"}
+        } as $user_cpf_duplicates
+
+        precondition (($user_cpf_duplicates|count) == 0) {
+          error_type = "inputerror"
+          error = "Já existe um cadastro com este CPF."
+        }
+      }
     }
 
     db.edit contact {
@@ -70,6 +127,10 @@ query "contacts/{contact_id}" verb=PATCH {
         name             : $input.name
         phone            : $normalized_phone
         phone_normalized : $normalized_phone
+        cpf              : $normalized_cpf
+        cpf_normalized   : $normalized_cpf
+        birth_date       : $input.birth_date
+        email            : $input.email
         source           : $input.source
         notes            : $input.notes
         first_contact_at : $input.first_contact_at

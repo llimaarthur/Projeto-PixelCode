@@ -49,4 +49,5 @@ query "auth/change-temporary-password" verb=POST {
   }
 
   response = {success: true}
+  guid = "UdPRsIDXU5dF4zbXU-VKun9RhAI"
 }

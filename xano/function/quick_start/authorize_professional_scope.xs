@@ -33,4 +33,5 @@ function "Quick Start/authorize_professional_scope" {
   }
 
   response = true
+  guid = "oJm-O2VoyNCN-6h1vhvfcNaK_9g"
 }

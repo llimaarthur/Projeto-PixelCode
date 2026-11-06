@@ -8,6 +8,10 @@ table contact {
     text name filters=trim
     text phone filters=trim
     text phone_normalized filters=trim
+    text cpf? filters=trim
+    text cpf_normalized? filters=trim
+    text birth_date? filters=trim
+    text email? filters=trim
     enum source {
       values = ["whatsapp", "indicacao", "instagram", "ligacao", "outra"]
     }
@@ -21,6 +25,7 @@ table contact {
   index = [
     {type: "primary", field: [{name: "id"}]}
     {type: "btree", field: [{name: "phone_normalized", op: "asc"}]}
+    {type: "btree", field: [{name: "cpf_normalized", op: "asc"}]}
     {type: "btree", field: [{name: "status", op: "asc"}]}
     {type: "btree", field: [{name: "source", op: "asc"}]}
     {type: "btree", field: [{name: "name", op: "asc"}]}
