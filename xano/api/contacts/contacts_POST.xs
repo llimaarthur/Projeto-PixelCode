@@ -21,7 +21,7 @@ query "contacts" verb=POST {
     } as $role_check
 
     var $normalized_phone {
-      value = $input.phone|regex_replace:"[^0-9]":""
+      value = $input.phone
     }
 
     var $normalized_cpf {

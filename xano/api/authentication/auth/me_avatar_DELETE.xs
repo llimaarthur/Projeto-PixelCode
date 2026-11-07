@@ -15,12 +15,16 @@ query "auth/me/avatar" verb=DELETE {
       field_name = "id"
       field_value = $auth.id
       data = {
-        profile_photo_url: null
-        profile_photo_public_id: null
+        profile_photo_url: ""
+        profile_photo_public_id: ""
       }
     } as $updated_user
   }
 
-  response = {success: true}
+  response = {
+    success                 : true
+    profile_photo_url       : $updated_user.profile_photo_url
+    profile_photo_public_id : $updated_user.profile_photo_public_id
+  }
   guid = "rEm0v3Av4t4r20261103"
 }

@@ -69,4 +69,80 @@ O formulário de cadastro profissional SHALL preservar os valores digitados quan
 #### Scenario: Cadastro concluído
 
 - **WHEN** a API confirma a criação do profissional
-- **THEN** o formulário é limpo e a senha temporária retornada é apresentada à administradora
+- **THEN** o formulário é limpo e a senha definitiva não é exibida nem retornada novamente
+
+### Requirement: Senha definitiva no cadastro de profissionais
+
+O formulário SHALL exigir uma senha para o novo profissional. O backend SHALL validar que ela contém pelo menos oito caracteres, uma letra e um dígito, armazená-la usando o campo de senha do usuário e criar a conta sem exigir troca no primeiro acesso. A senha SHALL NOT ser retornada na resposta da API.
+
+#### Scenario: Cadastro com senha válida
+
+- **WHEN** a administradora cadastra um profissional com uma senha que atende aos requisitos mínimos
+- **THEN** a conta é criada com essa senha definitiva, sem troca obrigatória no primeiro acesso, e a senha não é exibida nem retornada novamente
+
+#### Scenario: Cadastro com senha inválida ou ausente
+
+- **WHEN** a administradora envia uma senha ausente ou que não atende aos requisitos mínimos
+- **THEN** o backend rejeita o cadastro sem criar a conta e a interface mantém os dados para correção
+
+### Requisito: Confirmação persistente e paginação da equipe
+
+Após cadastrar um profissional com sucesso, a interface SHALL mostrar uma confirmação até a administradora sair da seção de equipe. A lista SHALL mostrar no máximo quatro profissionais por página.
+
+#### Cenário: Cadastro concluído na seção de equipe
+
+- **WHEN** o cadastro do profissional é concluído com sucesso
+- **THEN** a confirmação permanece visível enquanto a administradora permanecer na seção de equipe e desaparece ao navegar para outra seção
+
+#### Cenário: Lista da equipe paginada
+
+- **WHEN** houver mais de quatro profissionais cadastrados
+- **THEN** a lista exibe até quatro profissionais por página e permite navegar pelas demais páginas
+
+### Requisito: Persistência de CPF e senha no cadastro
+
+O endpoint de cadastro SHALL gravar o CPF e a senha enviados pela administradora nos campos correspondentes da conta Xano. Os nomes das entradas usadas para esses dados SHALL ser distintos dos nomes das colunas para evitar conflitos com campos ocultos do Xano.
+
+#### Cenário: Cadastro de novo profissional
+
+- **WHEN** a administradora envia um CPF e uma senha válidos
+- **THEN** o CPF fica registrado na conta e a senha permite autenticar o profissional
+
+### Requisito: Edição de perfil e foto
+
+O perfil SHALL permitir que usuários autenticados atualizem nome, e-mail e telefone na própria conta. O upload da foto SHALL usar a configuração do Cloudinary disponível no ambiente do projeto ou no arquivo `.env`, validar o formato e limitar o arquivo a 5 MB. A foto SHALL ser persistida na conta autenticada.
+
+#### Cenário: Salvar dados pessoais
+
+- **WHEN** o usuário informa nome, e-mail e telefone válidos
+- **THEN** os dados são atualizados na própria conta e refletidos na interface
+- **AND** uma mensagem de sucesso aparece junto ao formulário de dados pessoais
+
+#### Cenário: Enviar foto de perfil
+
+- **WHEN** o usuário envia uma imagem JPEG, PNG ou WebP válida de até 5 MB com o Cloudinary configurado
+- **THEN** a foto é armazenada e exibida no perfil
+- **AND** uma mensagem de sucesso aparece junto aos controles da foto
+
+#### Cenário: Foto de perfil mantém o layout do editor
+
+- **WHEN** a foto de perfil é exibida no editor
+- **THEN** a imagem permanece limitada ao tamanho do avatar e não encobre os demais controles ou seções
+
+#### Cenário: Remover foto de perfil
+
+- **WHEN** o usuário remove a foto de perfil
+- **THEN** a foto deixa de ser exibida e uma mensagem de sucesso aparece junto aos controles da foto
+- **AND** a remoção permanece após navegar para outra seção ou entrar novamente na conta
+
+### Requisito: Alteração de senha no perfil
+
+O perfil SHALL permitir que usuários autenticados alterem a própria senha após informar a senha atual e confirmar uma nova senha com ao menos oito caracteres, uma letra e um número. O backend SHALL validar esses requisitos, comparar os campos de senha nova e confirmação e atualizar a senha somente quando forem iguais.
+
+#### Cenário: Confirmação de senha nova
+
+- **WHEN** o usuário informa duas vezes a mesma senha nova válida e a senha atual correta
+- **THEN** a senha é atualizada com sucesso
+
+- **WHEN** as senhas novas informadas forem diferentes
+- **THEN** a alteração é rejeitada e a senha existente permanece inalterada

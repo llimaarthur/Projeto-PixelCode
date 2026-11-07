@@ -4,10 +4,10 @@ query "auth/me" verb=PATCH {
   auth = "user"
 
   input {
-    text name filters=trim
-    email email filters=trim|lower
-    text phone filters=trim
-    text cpf? filters=trim
+    text profile_name filters=trim
+    email profile_email filters=trim|lower
+    text profile_phone filters=trim
+    text profile_cpf? filters=trim
   }
 
   stack {
@@ -21,18 +21,18 @@ query "auth/me" verb=PATCH {
       output = ["id", "cpf"]
     } as $existing_user
 
-    precondition ($input.name != "" && ($input.name|strlen) <= 120) {
+    precondition ($input.profile_name != "" && ($input.profile_name|strlen) <= 120) {
       error_type = "inputerror"
       error = "Informe um nome válido de até 120 caracteres."
     }
 
-    precondition ($input.email != "") {
+    precondition ($input.profile_email != "") {
       error_type = "inputerror"
       error = "Informe um e-mail válido."
     }
 
     var $phone_digits {
-      value = $input.phone|regex_replace:"[^0-9]":""
+      value = $input.profile_phone
     }
 
     var $cpf_digits {
@@ -45,16 +45,16 @@ query "auth/me" verb=PATCH {
     }
 
     conditional {
-      if ($input.cpf != null && $input.cpf != "") {
+      if ($input.profile_cpf != null && $input.profile_cpf != "") {
         var.update $cpf_digits {
-          value = $input.cpf|regex_replace:"[^0-9]":""
+          value = $input.profile_cpf|regex_replace:"[^0-9]":""
         }
 
       }
     }
 
     db.query user {
-      where = $db.user.email == $input.email && $db.user.id != $auth.id
+      where = $db.user.email == $input.profile_email && $db.user.id != $auth.id
       return = {type: "single"}
     } as $existing_email
 
@@ -91,8 +91,8 @@ query "auth/me" verb=PATCH {
       field_name = "id"
       field_value = $auth.id
       data = {
-        name  : $input.name
-        email : $input.email
+        name  : $input.profile_name
+        email : $input.profile_email
         phone : $phone_digits
         cpf   : $cpf_digits
       }

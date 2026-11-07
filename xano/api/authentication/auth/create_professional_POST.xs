@@ -1,4 +1,4 @@
-// Creates a professional account with a temporary password. Only the administrator may call this endpoint.
+// Creates a professional account. Only the administrator may call this endpoint.
 query "auth/professionals" verb=POST {
   api_group = "Authentication"
   auth = "user"
@@ -7,7 +7,8 @@ query "auth/professionals" verb=POST {
     text name filters=trim
     email email filters=trim|lower
     text phone filters=trim
-    text cpf filters=trim
+    text professional_cpf filters=trim
+    password professional_password filters=min:8|minAlpha:1|minDigit:1
   }
 
   stack {
@@ -15,7 +16,7 @@ query "auth/professionals" verb=POST {
       input = {user_id: $auth.id, required_role: "admin"}
     } as $role_check
 
-    precondition ($input.name != "" && $input.email != "" && $input.phone != "" && $input.cpf != "") {
+    precondition ($input.name != "" && $input.email != "" && $input.phone != "" && $input.professional_cpf != "") {
       error_type = "inputerror"
       error = "Name, email, phone, and CPF are required."
     }
@@ -30,18 +31,12 @@ query "auth/professionals" verb=POST {
       error = "A professional with this email already exists."
     }
 
-    security.create_uuid as $temporary_secret
-
-    var $temporary_password {
-      value = "TmpA1-" ~ $temporary_secret
-    }
-
     var $normalized_phone {
-      value = $input.phone|regex_replace:"[^0-9]":""
+      value = $input.phone
     }
 
     var $normalized_cpf {
-      value = $input.cpf|regex_replace:"[^0-9]":""
+      value = $input.professional_cpf|regex_replace:"[^0-9]":""
     }
 
     precondition (($normalized_phone|strlen) == 10 || ($normalized_phone|strlen) == 11) {
@@ -76,10 +71,10 @@ query "auth/professionals" verb=POST {
         email                 : $input.email
         phone                 : $normalized_phone
         cpf                   : $normalized_cpf
-        password              : $temporary_password
+        password              : $input.professional_password
         role                  : "professional"
         status                : "active"
-        must_change_password  : true
+        must_change_password  : false
       }
     } as $professional
 
@@ -98,7 +93,6 @@ query "auth/professionals" verb=POST {
     email                : $professional.email
     role                 : $professional.role
     must_change_password : $professional.must_change_password
-    temporary_password   : $temporary_password
   }
   guid = "vYCLiKiI8JmILjzep2Zgz6FC3cw"
 }

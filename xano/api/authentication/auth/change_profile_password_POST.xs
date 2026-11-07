@@ -5,7 +5,7 @@ query "auth/change-password" verb=POST {
 
   input {
     text current_password
-    password new_password filters=min:8|minAlpha:1|minDigit:1
+    text new_password
     text confirm_password
   }
 
@@ -19,6 +19,24 @@ query "auth/change-password" verb=POST {
       field_value = $auth.id
       output = ["id", "password", "role"]
     } as $user
+
+    precondition (($input.new_password|strlen) >= 8) {
+      error_type = "inputerror"
+      error = "A nova senha deve ter ao menos 8 caracteres, uma letra e um número."
+    }
+
+    var $password_without_letters {
+      value = $input.new_password|regex_replace:"[A-Za-z]":""
+    }
+
+    var $password_without_digits {
+      value = $input.new_password|regex_replace:"[0-9]":""
+    }
+
+    precondition (($password_without_letters|strlen) < ($input.new_password|strlen) && ($password_without_digits|strlen) < ($input.new_password|strlen)) {
+      error_type = "inputerror"
+      error = "A nova senha deve ter ao menos 8 caracteres, uma letra e um número."
+    }
 
     var $legacy_password_match {
       value = (($user.password != null) && ($user.password == $input.current_password))

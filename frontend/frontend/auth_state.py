@@ -218,21 +218,22 @@ def _parse_appointment_datetime(value: Any) -> datetime:
 
 
 def _normalize_contact_phone(value: str) -> str:
-    digits = "".join(character for character in value if "0" <= character <= "9")
-    if len(digits) in (12, 13) and digits.startswith("55"):
-        return digits[2:]
+    digits = "".join(character for character in str(value or "") if "0" <= character <= "9")
+    if digits.startswith("55") and len(digits) in (12, 13):
+        digits = digits[2:]
+    elif len(digits) in (11, 12) and digits.startswith("0"):
+        digits = digits[1:]
     return digits
 
 
+def _phone_for_api(value: Any) -> str:
+    return _normalize_contact_phone(str(value or "").strip())
+
+
 def _format_contact_phone(value: str) -> str:
-    digits = "".join(character for character in value if "0" <= character <= "9")
-    country_prefix = ""
-    explicit_country_prefix = value.lstrip().startswith("+55")
-    if len(digits) > 11 and digits.startswith("55") and (
-        explicit_country_prefix or len(digits) == 13
-    ):
-        digits = digits[2:]
-        country_prefix = "+55 "
+    raw_value = str(value or "")
+    digits = _normalize_contact_phone(raw_value)
+    country_prefix = "+55 " if raw_value.lstrip().startswith("+55") else ""
     digits = digits[:11]
     if len(digits) <= 2:
         return country_prefix + digits
@@ -275,10 +276,6 @@ def _contact_phone_validation_error(value: str) -> str:
         return "Informe um telefone com DDD e 10 ou 11 dígitos."
     if digits[:2] not in BRAZIL_AREA_CODES:
         return "Informe um DDD válido."
-    if len(digits) == 10 and digits[2] not in "23456789":
-        return "Informe um telefone fixo ou celular válido."
-    if len(digits) == 11 and digits[2] != "9":
-        return "Celulares devem ter 9 dígitos após o DDD."
     return ""
 
 
@@ -400,10 +397,10 @@ def _log_profile_api_error(response: httpx.Response) -> None:
     print(f"[perfil] API {response.status_code}: {body}")
 
 
-def _configured_api_url(variable_name: str) -> str:
+def _configured_setting(variable_name: str) -> str:
     value = os.environ.get(variable_name, "").strip()
     if value:
-        return value.rstrip("/")
+        return value
 
     env_files = [
         Path(__file__).resolve().parents[1] / ".env",
@@ -419,10 +416,14 @@ def _configured_api_url(variable_name: str) -> str:
             for line in env_file.read_text(encoding="utf-8").splitlines():
                 key, separator, configured_value = line.partition("=")
                 if separator and key.strip() == variable_name:
-                    return configured_value.strip().strip("\"'").rstrip("/")
+                    return configured_value.strip().strip("\"'")
         except OSError:
             continue
     return ""
+
+
+def _configured_api_url(variable_name: str) -> str:
+    return _configured_setting(variable_name).rstrip("/")
 
 
 def _first_matching_value(payload: Any, *keys: str) -> Any:
@@ -483,7 +484,6 @@ class AuthState(rx.State):
     user_id: int = 0
     role: str = ""
     error_message: str = ""
-    temporary_password: str = ""
     is_submitting: bool = False
     professional_email: str = ""
     professional_phone: str = ""
@@ -491,14 +491,16 @@ class AuthState(rx.State):
     professionals: list[dict[str, Any]] = []
     professionals_loading: bool = False
     professionals_error: str = ""
+    professional_success_message: str = ""
     professional_page: int = 1
-    professional_page_size: int = 6
+    professional_page_size: int = 4
     profile_email: str = ""
     profile_phone: str = ""
     profile_cpf: str = ""
     profile_photo_url: str = ""
     profile_error_message: str = ""
-    profile_success_message: str = ""
+    profile_form_success_message: str = ""
+    profile_photo_success_message: str = ""
     profile_form_error: str = ""
     profile_is_submitting: bool = False
     profile_password_error: str = ""
@@ -674,7 +676,6 @@ class AuthState(rx.State):
         self.display_name = ""
         self.profile_name = ""
         self.role = ""
-        self.temporary_password = ""
         self.error_message = ""
         self.is_submitting = False
         self.user_id = 0
@@ -683,7 +684,8 @@ class AuthState(rx.State):
         self.profile_cpf = ""
         self.profile_photo_url = ""
         self.profile_error_message = ""
-        self.profile_success_message = ""
+        self.profile_form_success_message = ""
+        self.profile_photo_success_message = ""
         self.profile_form_error = ""
         self.profile_password_error = ""
         self.profile_current_password_error = ""
@@ -698,7 +700,9 @@ class AuthState(rx.State):
         self.service_success_message = ""
         self.contact_success_message = ""
         self.appointment_success_message = ""
-        self.profile_success_message = ""
+        self.profile_form_success_message = ""
+        self.profile_photo_success_message = ""
+        self.professional_success_message = ""
         self.profile_editor_open = False
 
     async def _load_identity(self) -> dict | None:
@@ -829,7 +833,6 @@ class AuthState(rx.State):
     @rx.event
     async def require_admin(self):
         self.clear_menu_success_messages()
-        self.temporary_password = ""
         if not self._auth_token:
             return rx.redirect("/login")
         profile = await self._load_identity()
@@ -917,13 +920,21 @@ class AuthState(rx.State):
         phone = _format_contact_phone(
             str(form_data.get("phone") or self.professional_phone).strip()
         )
-        normalized_phone = _normalize_contact_phone(phone)
+        normalized_phone = _phone_for_api(phone)
         cpf = _normalize_cpf(
             str(form_data.get("cpf") or self.professional_cpf).strip()
         )
         email = _normalize_email(form_data.get("email") or self.professional_email)
+        password = str(form_data.get("password") or "")
         phone_error = _contact_phone_validation_error(normalized_phone)
         email_error = _email_validation_error(email)
+        if (
+            len(password) < 8
+            or not any(character.isalpha() for character in password)
+            or not any(character.isdigit() for character in password)
+        ):
+            self.error_message = "A senha deve ter pelo menos 8 caracteres, uma letra e um número."
+            return
         if email_error:
             self.error_message = email_error
             return
@@ -932,6 +943,7 @@ class AuthState(rx.State):
             return
         self.is_submitting = True
         self.error_message = ""
+        self.professional_success_message = ""
         yield
         response = await self._request(
             "POST",
@@ -940,7 +952,8 @@ class AuthState(rx.State):
                 "name": form_data.get("name", "").strip(),
                 "email": email,
                 "phone": normalized_phone,
-                "cpf": cpf,
+                "professional_cpf": cpf,
+                "professional_password": password,
             },
         )
         if response is None:
@@ -954,13 +967,11 @@ class AuthState(rx.State):
             self.is_submitting = False
             return
 
-        self.temporary_password = response.json().get("temporary_password", "")
-        if not self.temporary_password:
-            self.error_message = "A conta foi criada, mas a senha temporária não foi retornada. Contate o suporte."
         self.professional_email = ""
         self.professional_phone = ""
         self.professional_cpf = ""
         await self.load_professionals()
+        self.professional_success_message = "Profissional cadastrado com sucesso."
         self.is_submitting = False
         yield rx.call_script("document.getElementById('professional-form').reset()")
 
@@ -975,10 +986,6 @@ class AuthState(rx.State):
     @rx.event
     def set_professional_cpf(self, value: str):
         self.professional_cpf = _format_cpf(value)
-
-    @rx.event
-    def clear_temporary_password(self):
-        self.temporary_password = ""
 
     @rx.event
     def logout(self):
@@ -1005,7 +1012,8 @@ class AuthState(rx.State):
         self.profile_name = self.display_name
         self.profile_form_error = ""
         self.profile_error_message = ""
-        self.profile_success_message = ""
+        self.profile_form_success_message = ""
+        self.profile_photo_success_message = ""
         self.profile_password_error = ""
         self.profile_password_success = ""
         self.profile_current_password_visible = False
@@ -1035,18 +1043,22 @@ class AuthState(rx.State):
     @rx.event
     def set_profile_name(self, value: str):
         self.profile_name = value
+        self.profile_form_success_message = ""
 
     @rx.event
     def set_profile_email(self, value: str):
         self.profile_email = value
+        self.profile_form_success_message = ""
 
     @rx.event
     def set_profile_phone(self, value: str):
         self.profile_phone = value
+        self.profile_form_success_message = ""
 
     @rx.event
     def format_profile_phone(self):
         self.profile_phone = _format_contact_phone(self.profile_phone)
+        self.profile_form_success_message = ""
 
     @rx.event
     async def save_profile(self, form_data: dict[str, Any]):
@@ -1057,6 +1069,7 @@ class AuthState(rx.State):
             return
 
         name = str(form_data.get("name", self.profile_name)).strip()
+        self.profile_form_success_message = ""
         email = _normalize_email(form_data.get("email", self.profile_email))
         phone = _format_contact_phone(
             str(form_data.get("phone", self.profile_phone)).strip()
@@ -1077,15 +1090,14 @@ class AuthState(rx.State):
 
         self.profile_is_submitting = True
         self.profile_form_error = ""
-        self.profile_success_message = ""
         yield
         response = await self._request(
             "PATCH",
             "auth/me",
             {
-                "name": name,
-                "email": email,
-                "phone": _normalize_contact_phone(phone),
+                "profile_name": name,
+                "profile_email": email,
+                "profile_phone": _normalize_contact_phone(phone),
             },
             error_context="perfil",
         )
@@ -1111,7 +1123,7 @@ class AuthState(rx.State):
         self.profile_name = self.display_name
         self.profile_email = str(result.get("email") or email)
         self.profile_phone = _format_contact_phone(str(result.get("phone") or phone))
-        self.profile_success_message = "Seus dados foram atualizados com sucesso."
+        self.profile_form_success_message = "Seus dados foram atualizados com sucesso."
 
     @rx.event
     async def change_profile_password(self, form_data: dict[str, Any]):
@@ -1196,6 +1208,7 @@ class AuthState(rx.State):
         if not self._auth_token:
             yield rx.redirect("/login")
             return
+        self.profile_photo_success_message = ""
         if not files:
             self.profile_error_message = "Selecione uma imagem para enviar."
             return
@@ -1227,8 +1240,8 @@ class AuthState(rx.State):
         self.profile_is_submitting = True
         self.profile_error_message = ""
         yield
-        cloud_name = os.getenv("VITE_CLOUDINARY_CLOUD_NAME", "").strip()
-        upload_preset = os.getenv("VITE_CLOUDINARY_UPLOAD_PRESET", "").strip()
+        cloud_name = _configured_setting("VITE_CLOUDINARY_CLOUD_NAME")
+        upload_preset = _configured_setting("VITE_CLOUDINARY_UPLOAD_PRESET")
         if not cloud_name or not upload_preset:
             self.profile_is_submitting = False
             self.profile_error_message = (
@@ -1250,10 +1263,17 @@ class AuthState(rx.State):
                 )
         except httpx.HTTPError:
             cloudinary_response = None
-        if cloudinary_response is None or cloudinary_response.status_code not in (200, 201):
+        if cloudinary_response is None:
             self.profile_is_submitting = False
             self.profile_error_message = (
-                "Não foi possível enviar a foto ao armazenamento. Tente novamente."
+                "Não foi possível conectar ao armazenamento de fotos. Tente novamente."
+            )
+            return
+        if cloudinary_response.status_code not in (200, 201):
+            self.profile_is_submitting = False
+            self.profile_error_message = _api_error_message(
+                cloudinary_response,
+                "Não foi possível enviar a foto ao armazenamento. Tente novamente.",
             )
             return
         try:
@@ -1289,7 +1309,7 @@ class AuthState(rx.State):
                 self.profile_error_message = "A API não retornou a foto atualizada."
                 return
             self.profile_photo_url = photo_url
-            self.profile_success_message = "Foto de perfil atualizada."
+            self.profile_photo_success_message = "Foto de perfil atualizada."
             yield rx.clear_selected_files("profile-photo-upload")
         yield
 
@@ -1297,6 +1317,7 @@ class AuthState(rx.State):
     async def remove_profile_photo(self):
         if not self._auth_token:
             return rx.redirect("/login")
+        self.profile_photo_success_message = ""
         response = await self._request(
             "DELETE",
             "auth/me/avatar",
@@ -1310,9 +1331,26 @@ class AuthState(rx.State):
                 "Não foi possível remover sua foto de perfil.",
             )
         else:
+            try:
+                result = response.json()
+            except ValueError:
+                self.profile_error_message = (
+                    "O servidor não confirmou a remoção da foto. Tente novamente."
+                )
+                return
+            photo_url = (
+                _first_matching_value(result, "profile_photo_url", "avatar_url")
+                if isinstance(result, dict)
+                else None
+            )
+            if photo_url not in (None, ""):
+                self.profile_error_message = (
+                    "O servidor não confirmou a remoção da foto. Tente novamente."
+                )
+                return
             self.profile_photo_url = ""
             self.profile_error_message = ""
-            self.profile_success_message = "Foto de perfil removida."
+            self.profile_photo_success_message = "Foto de perfil removida."
 
     @rx.event
     async def require_appointment_access(self):
@@ -3149,7 +3187,9 @@ class AuthState(rx.State):
         self.is_submitting = True
         self.contact_form_error = ""
         name = str(form_data.get("name") or self.contact_form_name).strip()
-        phone = str(form_data.get("phone") or self.contact_form_phone).strip()
+        phone = _format_contact_phone(
+            str(form_data.get("phone") or self.contact_form_phone).strip()
+        )
         cpf = _normalize_cpf(str(form_data.get("cpf") or self.contact_form_cpf))
         birth_date = str(
             form_data.get("birth_date") or self.contact_form_birth_date
@@ -3207,7 +3247,7 @@ class AuthState(rx.State):
             return
         payload = {
             "name": name,
-            "phone": _normalize_contact_phone(phone),
+            "phone": _phone_for_api(phone),
             "cpf": cpf,
             "birth_date": birth_date,
             "email": email,
@@ -3928,7 +3968,7 @@ def app_page() -> rx.Component:
 
 def _professional_row(professional: Any) -> rx.Component:
     return rx.el.article(
-        rx.hstack(
+        rx.el.div(
             rx.cond(
                 professional["profile_photo_url"] != "",
                 rx.image(
@@ -3944,28 +3984,27 @@ def _professional_row(professional: Any) -> rx.Component:
                     class_name="pc-team-avatar-icon",
                 ),
             ),
-            rx.vstack(
-                rx.text(professional["name"], class_name="pc-service-name"),
-                rx.text(professional["email"], class_name="pc-service-description"),
-                align="start",
-                spacing="1",
-                min_width="0",
+            rx.el.div(
+                rx.text(professional["name"], class_name="pc-team-name"),
+                rx.text(professional["email"], class_name="pc-team-email"),
+                class_name="pc-team-copy",
             ),
-            align="center",
-            width="100%",
             class_name="pc-team-primary",
         ),
-        rx.text(
-            professional["phone"],
-            class_name="pc-service-column",
-            data_label="Telefone",
+        rx.el.div(
+            rx.el.div(
+                rx.text(professional["phone"], class_name="pc-team-phone-value"),
+                data_label="Telefone",
+                class_name="pc-team-phone",
+            ),
+            rx.el.div(
+                rx.text(professional["role"], class_name="pc-team-role-value"),
+                data_label="Perfil",
+                class_name="pc-team-role",
+            ),
+            class_name="pc-team-meta",
         ),
-        rx.text(
-            professional["role"],
-            class_name="pc-service-column",
-            data_label="Perfil",
-        ),
-        class_name="pc-service-row pc-team-row",
+        class_name="pc-team-member-row",
     )
 
 
@@ -4038,6 +4077,31 @@ def create_professional_page() -> rx.Component:
                 align="stretch",
                 spacing="2",
             ),
+            rx.vstack(
+                rx.el.label("Senha", html_for="professional-password", class_name="pc-field-label"),
+                rx.input(
+                    id="professional-password",
+                    name="password",
+                    type="password",
+                    placeholder="Mínimo de 8 caracteres, uma letra e um número",
+                    required=True,
+                    min_length=8,
+                    class_name="pc-input",
+                    width="100%",
+                ),
+                class_name="pc-field",
+                align="stretch",
+                spacing="2",
+            ),
+            rx.cond(
+                AuthState.professional_success_message != "",
+                rx.text(
+                    AuthState.professional_success_message,
+                    role="status",
+                    class_name="pc-service-success",
+                ),
+                rx.fragment(),
+            ),
             _message(),
             rx.button(
                 rx.cond(AuthState.is_submitting, "Criando conta...", "Criar conta"),
@@ -4068,34 +4132,13 @@ def create_professional_page() -> rx.Component:
         rx.text("GESTÃO DA EQUIPE", class_name="pc-eyebrow"),
         rx.heading("Cadastrar profissional", class_name="pc-page-title"),
         rx.text(
-            "Todos os campos são obrigatórios. A senha temporária será exibida uma única vez.",
+            "Todos os campos são obrigatórios. Defina a senha de acesso do profissional.",
             class_name="pc-page-description",
         ),
         rx.el.section(
             rx.hstack(
                 rx.el.section(
                     professional_form,
-                    rx.cond(
-                        AuthState.temporary_password != "",
-                        rx.vstack(
-                            rx.text("Acesso inicial", class_name="pc-secret-title"),
-                            rx.text(
-                                "Copie e entregue esta senha ao profissional por um canal seguro.",
-                                class_name="pc-secret-description",
-                            ),
-                            rx.code(AuthState.temporary_password, class_name="pc-secret-code"),
-                            rx.button(
-                                "Ocultar senha",
-                                on_click=AuthState.clear_temporary_password,
-                                class_name="pc-button pc-button-secondary",
-                            ),
-                            align="start",
-                            spacing="3",
-                            width="100%",
-                            class_name="pc-secret-panel",
-                        ),
-                        rx.fragment(),
-                    ),
                     class_name="pc-form-panel pc-team-form-panel",
                 ),
                 rx.el.section(
@@ -4111,12 +4154,6 @@ def create_professional_page() -> rx.Component:
                                     AuthState.professionals.length() == 0,
                                     rx.text("Nenhum profissional cadastrado.", class_name="pc-service-empty"),
                                     rx.vstack(
-                                        rx.el.article(
-                                            rx.text("Profissional", class_name="pc-service-header-cell"),
-                                            rx.text("Telefone", class_name="pc-service-header-cell"),
-                                            rx.text("Perfil", class_name="pc-service-header-cell"),
-                                            class_name="pc-service-row pc-team-header",
-                                        ),
                                         rx.foreach(AuthState.professional_page_items, _professional_row),
                                         rx.hstack(
                                             rx.text(
@@ -6708,6 +6745,15 @@ def _profile_editor() -> rx.Component:
                 ),
                 rx.fragment(),
             ),
+            rx.cond(
+                AuthState.profile_form_success_message != "",
+                rx.text(
+                    AuthState.profile_form_success_message,
+                    role="status",
+                    class_name="pc-service-success",
+                ),
+                rx.fragment(),
+            ),
             rx.button(
                 rx.cond(
                     AuthState.profile_is_submitting,
@@ -6843,15 +6889,6 @@ def _profile_editor() -> rx.Component:
             width="100%",
         ),
         rx.cond(
-            AuthState.profile_success_message != "",
-            rx.text(
-                AuthState.profile_success_message,
-                role="status",
-                class_name="pc-service-success",
-            ),
-            rx.fragment(),
-        ),
-        rx.cond(
             AuthState.profile_error_message != "",
             rx.text(
                 AuthState.profile_error_message,
@@ -6862,6 +6899,15 @@ def _profile_editor() -> rx.Component:
         ),
         rx.el.section(
             rx.vstack(
+                rx.cond(
+                    AuthState.profile_photo_success_message != "",
+                    rx.text(
+                        AuthState.profile_photo_success_message,
+                        role="status",
+                        class_name="pc-service-success",
+                    ),
+                    rx.fragment(),
+                ),
                 rx.hstack(
                     rx.cond(
                         AuthState.profile_photo_url != "",
@@ -6869,6 +6915,11 @@ def _profile_editor() -> rx.Component:
                             src=AuthState.profile_photo_url,
                             alt="Foto de perfil",
                             class_name="pc-profile-avatar",
+                            width="84px",
+                            height="84px",
+                            max_width="84px",
+                            min_width="84px",
+                            object_fit="cover",
                         ),
                         rx.icon(
                             "circle-user-round",

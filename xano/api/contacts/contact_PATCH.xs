@@ -32,7 +32,7 @@ query "contacts/{contact_id}" verb=PATCH {
     }
 
     var $normalized_phone {
-      value = $input.phone|regex_replace:"[^0-9]":""
+      value = $input.phone
     }
 
     var $normalized_cpf {
