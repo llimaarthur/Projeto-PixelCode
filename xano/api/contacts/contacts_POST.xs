@@ -7,7 +7,7 @@ query "contacts" verb=POST {
     text phone filters=trim
     text cpf? filters=trim
     text birth_date? filters=trim
-    email email? filters=trim|lower
+    text email? filters=trim|lower
     enum source {
       values = ["whatsapp", "indicacao", "instagram", "ligacao", "outra"]
     }
@@ -56,7 +56,7 @@ query "contacts" verb=POST {
       error = "A data de nascimento não pode estar no futuro."
     }
 
-    precondition ($input.email == null || $input.email == "" || (($input.email|strlen) <= 254 && $input.email|contains:"@" && $input.email|contains:".")) {
+    precondition ($input.email == null || $input.email == "" || ($input.email|strlen) <= 254) {
       error_type = "inputerror"
       error = "Informe um e-mail válido."
     }

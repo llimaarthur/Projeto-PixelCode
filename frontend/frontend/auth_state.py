@@ -252,11 +252,7 @@ def _format_contact_phone(value: str) -> str:
 
 
 def _format_cpf(value: str) -> str:
-    digits = "".join(character for character in value if "0" <= character <= "9")
-    if len(digits) == 11:
-        return f"{digits[:3]}.{digits[3:6]}.{digits[6:9]}-{digits[9:]}"
-    if len(digits) > 11:
-        return digits
+    digits = "".join(character for character in value if "0" <= character <= "9")[:11]
     if len(digits) > 9:
         return f"{digits[:3]}.{digits[3:6]}.{digits[6:9]}-{digits[9:]}"
     if len(digits) > 6:
@@ -283,14 +279,9 @@ def _email_validation_error(value: str) -> str:
     email = _normalize_email(value)
     if not email:
         return ""
-    local_part, separator, domain = email.partition("@")
     if (
-        not separator
-        or not local_part
-        or not domain
-        or any(character.isspace() for character in email)
-        or "." not in domain
-        or len(email) > 254
+        len(email) > 254
+        or not re.fullmatch(r"[^\s@]+@[^\s@.]+(?:\.[^\s@.]+)+", email)
     ):
         return "Informe um e-mail válido."
     return ""
@@ -2402,8 +2393,6 @@ class AuthState(rx.State):
             self.appointment_quick_contact_error = _contact_phone_validation_error(phone)
         elif birth_date_error:
             self.appointment_quick_contact_error = birth_date_error
-        elif _email_validation_error(email):
-            self.appointment_quick_contact_error = _email_validation_error(email)
         elif source is None:
             self.appointment_quick_contact_error = "Selecione uma origem válida."
         elif not first_contact_at:
@@ -3234,8 +3223,6 @@ class AuthState(rx.State):
             self.contact_form_error = birth_date_error
         elif first_contact_error:
             self.contact_form_error = first_contact_error
-        elif _email_validation_error(email):
-            self.contact_form_error = _email_validation_error(email)
         elif source is None:
             self.contact_form_error = "Selecione uma origem válida."
         elif not first_contact_at:
@@ -3620,7 +3607,7 @@ def login_page() -> rx.Component:
                     id="login-email",
                     name="email",
                     type="email",
-                    placeholder="nome@barbearia.com",
+                    placeholder="nome.barbearia.com",
                     required=True,
                     class_name="pc-input",
                     width="100%",
@@ -4812,6 +4799,8 @@ def _contact_form() -> rx.Component:
                                 value=AuthState.contact_form_cpf,
                                 on_change=AuthState.set_contact_form_cpf,
                                 input_mode="numeric",
+                                max_length=14,
+                                placeholder="000.000.000-00",
                                 class_name="pc-input",
                                 width="100%",
                             ),
@@ -4852,9 +4841,11 @@ def _contact_form() -> rx.Component:
                             id="contact-email",
                             name="email",
                             type="email",
+                            input_mode="email",
                             value=AuthState.contact_form_email,
                             on_change=AuthState.set_contact_form_email,
                             max_length=254,
+                            placeholder="cliente@email.com",
                             class_name="pc-input",
                             width="100%",
                         ),
@@ -5987,6 +5978,7 @@ def _appointment_quick_contact_form() -> rx.Component:
                             value=AuthState.appointment_quick_contact_cpf,
                             on_change=AuthState.set_quick_contact_cpf,
                             max_length=14,
+                            placeholder="000.000.000-00",
                             class_name="pc-input",
                         ),
                         class_name="pc-field",
@@ -6017,8 +6009,11 @@ def _appointment_quick_contact_form() -> rx.Component:
                         id="quick-contact-email",
                         name="email",
                         type="email",
+                        input_mode="email",
                         value=AuthState.appointment_quick_contact_email,
                         on_change=AuthState.set_quick_contact_email,
+                        max_length=254,
+                        placeholder="cliente@email.com",
                         class_name="pc-input",
                     ),
                     class_name="pc-field",
