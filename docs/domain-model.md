@@ -198,6 +198,38 @@ Representa o registro financeiro do serviço orçado ou realizado.
 - o pagamento pode ser registrado antes ou depois do atendimento, conforme a rotina da barbearia;
 - o valor do serviço deve ser preservado mesmo que o preço do catálogo mude depois.
 
+### 3.6 Movimentação financeira
+
+Representa uma entrada ou saída registrada manualmente pela equipe no ledger
+compartilhado da barbearia. Não é conciliada automaticamente com pagamentos de
+agendamentos ou com uma conta bancária.
+
+### Atributos conceituais
+
+- id_movimentacao;
+- tipo (entrada ou saída);
+- valor positivo;
+- título e detalhe opcional;
+- data_hora da movimentação;
+- usuário responsável pelo registro;
+- estado (ativa ou estornada), motivo e metadados de estorno;
+- histórico de alterações com valores anteriores, usuário e data/hora.
+
+### Regras estruturais importantes
+
+- somente usuários internos autenticados podem consultar e registrar
+  movimentações;
+- o valor deve ser positivo, com no máximo duas casas decimais;
+- a data da movimentação não pode estar no futuro;
+- lançamentos ativos podem ser editados, preservando cada versão anterior no
+  histórico de auditoria;
+- lançamentos podem ser estornados com motivo, sem exclusão física, e não podem
+  ser editados nem estornados novamente;
+- lançamentos estornados continuam visíveis no histórico, mas não participam
+  dos KPIs, do fluxo de caixa, do resumo ou do saldo acumulado;
+- o saldo acumulado do painel é a soma de entradas menos saídas registradas,
+  sem saldo inicial e sem representar saldo bancário.
+
 ---
 
 ## 4. Relacionamentos principais
@@ -208,6 +240,7 @@ A estrutura central do domínio pode ser resumida assim:
 - Barbeiro recebe e organiza o pedido;
 - Agendamento é registrado com cliente, barbeiro e serviços;
 - Pagamento e histórico são registrados ao longo do atendimento;
+- Entradas e saídas são registradas no ledger financeiro compartilhado;
 - O sistema funciona como agenda e ferramenta de gestão operacional da barbearia, não como portal do cliente.
 
 ---
@@ -223,7 +256,8 @@ As regras abaixo devem ser preservadas em qualquer operação:
 5. Um barbeiro não pode ter dois agendamentos no mesmo horário.
 6. O valor do serviço no agendamento deve ser preservado mesmo que o preço do catálogo mude mais tarde.
 7. Um agendamento pode existir sem pagamento, mas não sem dados mínimos de negócio.
-8. A origem do contato e a data do primeiro contato são elementos importantes para registrar o histórico do relacionamento com a barbearia.
+8. Movimentações financeiras são registradas separadamente e não inferidas a partir do status do agendamento.
+9. A origem do contato e a data do primeiro contato são elementos importantes para registrar o histórico do relacionamento com a barbearia.
 
 ---
 

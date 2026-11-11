@@ -9,6 +9,17 @@ from typing import Any
 
 import httpx
 import reflex as rx
+from reflex.utils.exec import is_prod_mode
+
+from frontend.finance_service import (
+    BARBERSHOP_TIMEZONE,
+    FinanceDataError,
+    finance_dashboard_from_transactions,
+    mock_finance_dashboard,
+    normalize_finance_dashboard,
+    prepare_cashflow_chart,
+    should_use_finance_mock,
+)
 
 
 CONTACT_SOURCE_LABELS = {
@@ -613,6 +624,47 @@ class AuthState(rx.State):
     appointment_block_reason: str = ""
     appointment_block_error: str = ""
     appointment_block_submitting: bool = False
+    finance_kpis: list[dict[str, Any]] = []
+    finance_kpis_loading: bool = True
+    finance_kpis_error: str = ""
+    finance_cashflow: dict[str, list[dict[str, Any]]] = {}
+    finance_period: str = "6m"
+    finance_chart_points: list[dict[str, Any]] = []
+    finance_chart_y_ticks: list[dict[str, Any]] = []
+    finance_chart_inflow_path: str = ""
+    finance_chart_outflow_path: str = ""
+    finance_chart_inflow_area: str = ""
+    finance_chart_outflow_area: str = ""
+    finance_chart_loading: bool = True
+    finance_chart_error: str = ""
+    finance_chart_active_index: int = -1
+    finance_summary: dict[str, Any] = {}
+    finance_summary_empty: bool = True
+    finance_summary_loading: bool = True
+    finance_summary_error: str = ""
+    finance_transactions: list[dict[str, Any]] = []
+    finance_transactions_loading: bool = True
+    finance_transactions_error: str = ""
+    finance_show_all_transactions: bool = False
+    finance_show_cancelled_transactions: bool = False
+    finance_api_available: bool = False
+    finance_mock_mode: bool = False
+    finance_form_open: bool = False
+    finance_form_type: str = "income"
+    finance_form_mode: str = "create"
+    finance_form_transaction_id: int = 0
+    finance_form_title: str = ""
+    finance_form_detail: str = ""
+    finance_form_amount: str = ""
+    finance_form_occurred_at: str = ""
+    finance_form_confirming: bool = False
+    finance_form_error: str = ""
+    finance_form_success_message: str = ""
+    finance_form_submitting: bool = False
+    finance_cancel_transaction_id: int = 0
+    finance_cancel_reason: str = ""
+    finance_cancel_error: str = ""
+    finance_cancel_submitting: bool = False
 
     async def _request(
         self,
@@ -627,6 +679,8 @@ class AuthState(rx.State):
         api_group_variable = (
             "XANO_APPOINTMENTS_API_URL"
             if endpoint_path == "appointments" or endpoint_path.startswith("appointments/")
+            else "XANO_FINANCE_API_URL"
+            if endpoint_path == "finance" or endpoint_path.startswith("finance/")
             else "XANO_SERVICES_API_URL"
             if endpoint_path == "services" or endpoint_path.startswith("services/")
             else "XANO_CONTACTS_API_URL"
@@ -634,11 +688,17 @@ class AuthState(rx.State):
             else "XANO_API_URL"
         )
         base_url = _configured_api_url(api_group_variable)
-        if not base_url and api_group_variable != "XANO_API_URL":
+        if (
+            not base_url
+            and api_group_variable not in ("XANO_API_URL", "XANO_FINANCE_API_URL")
+        ):
             base_url = _configured_api_url("XANO_API_URL")
         if not base_url:
             self.error_message = (
-                f"Configure {api_group_variable} ou XANO_API_URL para conectar ao Xano."
+                "Configure XANO_FINANCE_API_URL com a URL base do grupo Finance "
+                "para conectar ao Xano."
+                if api_group_variable == "XANO_FINANCE_API_URL"
+                else f"Configure {api_group_variable} ou XANO_API_URL para conectar ao Xano."
                 if api_group_variable != "XANO_API_URL"
                 else "Configure XANO_API_URL para conectar ao Xano."
             )
@@ -795,6 +855,422 @@ class AuthState(rx.State):
             return rx.redirect("/login")
         if _profile_requires_password_change(profile):
             return rx.redirect("/change-password")
+
+    @rx.event
+    async def require_finance_access(self):
+        self.clear_menu_success_messages()
+        if not self._auth_token:
+            yield rx.redirect("/login")
+            return
+        profile = await self._load_identity()
+        if profile is None:
+            self._clear_session()
+            yield rx.redirect("/login")
+            return
+        if _profile_requires_password_change(profile):
+            yield rx.redirect("/change-password")
+            return
+        if self.role not in ("admin", "professional"):
+            yield rx.redirect("/app")
+            return
+
+        self.finance_kpis_loading = True
+        self.finance_chart_loading = True
+        self.finance_summary_loading = True
+        self.finance_transactions_loading = True
+        self.finance_kpis_error = ""
+        self.finance_chart_error = ""
+        self.finance_summary_error = ""
+        self.finance_transactions_error = ""
+        self.finance_form_error = ""
+        self.finance_form_success_message = ""
+        yield
+        await self._load_finance_dashboard()
+
+    async def _load_finance_dashboard(self):
+        self.finance_kpis_loading = True
+        self.finance_chart_loading = True
+        self.finance_summary_loading = True
+        self.finance_transactions_loading = True
+        self.finance_kpis_error = ""
+        self.finance_chart_error = ""
+        self.finance_summary_error = ""
+        self.finance_transactions_error = ""
+
+        api_configured = bool(_configured_api_url("XANO_FINANCE_API_URL"))
+        mock_enabled = should_use_finance_mock(
+            _configured_setting("FINANCE_MOCK_ENABLED"),
+            is_prod_mode(),
+            api_configured,
+        )
+        self.finance_api_available = api_configured
+        self.finance_mock_mode = mock_enabled
+        if not api_configured:
+            self.finance_form_open = False
+        if mock_enabled:
+            payload = mock_finance_dashboard()
+        else:
+            response = await self._request(
+                "GET",
+                "finance/dashboard",
+                error_context="serviço financeiro",
+            )
+            if response is None:
+                self._set_finance_error(
+                    "Não foi possível carregar os dados financeiros. Tente novamente."
+                )
+                return
+            if response.status_code != 200:
+                self._set_finance_error(
+                    "Não foi possível carregar os dados financeiros. Tente novamente."
+                )
+                return
+            try:
+                payload = response.json()
+            except ValueError:
+                self._set_finance_error(
+                    "Os dados financeiros estão temporariamente indisponíveis."
+                )
+                return
+            if isinstance(payload, dict):
+                if isinstance(payload.get("data"), dict):
+                    payload = payload["data"]
+
+        try:
+            dashboard = (
+                normalize_finance_dashboard(payload)
+                if mock_enabled
+                else finance_dashboard_from_transactions(payload)
+            )
+        except FinanceDataError as error:
+            print(f"[finance] Invalid dashboard response: {error}")
+            self._set_finance_error(
+                "Os dados financeiros estão temporariamente indisponíveis."
+            )
+            return
+
+        self.finance_kpis = dashboard["kpis"]
+        self.finance_cashflow = dashboard["cashflow"]
+        self.finance_summary = dashboard["summary"]
+        self.finance_summary_empty = not bool(dashboard["summary"])
+        self.finance_transactions = dashboard["transactions"]
+        self.finance_period = "6m"
+        self.finance_chart_active_index = -1
+        self._refresh_finance_chart()
+        errors = dashboard.get("errors", {})
+        self.finance_kpis_error = errors.get("kpis", "")
+        self.finance_chart_error = errors.get("cashflow", "")
+        self.finance_summary_error = errors.get("summary", "")
+        self.finance_transactions_error = errors.get("transactions", "")
+        self.finance_kpis_loading = False
+        self.finance_chart_loading = False
+        self.finance_summary_loading = False
+        self.finance_transactions_loading = False
+
+    @rx.event
+    def set_finance_form_open(self, is_open: bool):
+        if is_open:
+            self.finance_form_mode = "create"
+            self.finance_form_transaction_id = 0
+            self.finance_cancel_transaction_id = 0
+            self.finance_cancel_reason = ""
+            self.finance_form_type = "income"
+            self.finance_form_title = ""
+            self.finance_form_detail = ""
+            self.finance_form_amount = ""
+            self.finance_form_confirming = False
+            self.finance_form_occurred_at = datetime.now(
+                BARBERSHOP_TIMEZONE
+            ).strftime("%Y-%m-%dT%H:%M")
+        else:
+            self.finance_form_mode = "create"
+            self.finance_form_transaction_id = 0
+            self.finance_form_title = ""
+            self.finance_form_detail = ""
+            self.finance_form_amount = ""
+            self.finance_form_occurred_at = ""
+            self.finance_form_confirming = False
+        self.finance_form_open = is_open
+        self.finance_form_error = ""
+
+    @rx.event
+    def edit_finance_transaction(
+        self,
+        transaction_id: int,
+        transaction_type: str,
+        title: str,
+        detail: str,
+        amount: float,
+        occurred_at: str,
+    ):
+        if not self.finance_api_available or transaction_id <= 0:
+            return
+        self.finance_form_mode = "edit"
+        self.finance_form_transaction_id = transaction_id
+        self.finance_form_type = transaction_type
+        self.finance_form_title = title
+        self.finance_form_detail = detail
+        self.finance_form_amount = f"{amount:.2f}"
+        self.finance_form_occurred_at = occurred_at
+        self.finance_form_confirming = False
+        self.finance_cancel_transaction_id = 0
+        self.finance_cancel_reason = ""
+        self.finance_form_error = ""
+        self.finance_form_success_message = ""
+        self.finance_form_open = True
+
+    @rx.event
+    def set_finance_form_type(self, transaction_type: str):
+        if transaction_type in {"income", "expense"}:
+            self.finance_form_type = transaction_type
+            self.finance_form_error = ""
+            self.finance_form_confirming = False
+
+    @rx.event
+    def set_finance_form_title(self, value: str):
+        self.finance_form_title = value
+        self.finance_form_confirming = False
+
+    @rx.event
+    def set_finance_form_detail(self, value: str):
+        self.finance_form_detail = value
+        self.finance_form_confirming = False
+
+    @rx.event
+    def set_finance_form_amount(self, value: str):
+        self.finance_form_amount = value
+        self.finance_form_confirming = False
+
+    @rx.event
+    def set_finance_form_occurred_at(self, value: str):
+        self.finance_form_occurred_at = value
+        self.finance_form_confirming = False
+
+    @rx.event
+    def set_finance_cancel_reason(self, value: str):
+        self.finance_cancel_reason = value
+        self.finance_cancel_error = ""
+
+    @rx.event
+    async def save_finance_transaction(self, form_data: dict[str, Any]):
+        if self.finance_form_submitting:
+            return
+        if not self.finance_api_available:
+            self.finance_form_error = (
+                "O registro de movimentações fica disponível quando a API "
+                "financeira está configurada."
+            )
+            return
+
+        is_edit = self.finance_form_mode == "edit"
+        transaction_type = self.finance_form_type
+        title = str(form_data.get("title", self.finance_form_title)).strip()
+        detail = str(form_data.get("detail", self.finance_form_detail)).strip()
+        amount_value = str(form_data.get("amount", self.finance_form_amount)).strip()
+        occurred_at_value = str(
+            form_data.get("occurred_at", self.finance_form_occurred_at)
+        ).strip()
+        if transaction_type not in {"income", "expense"}:
+            self.finance_form_error = "Selecione o tipo da movimentação."
+            return
+        if not title or len(title) > 100:
+            self.finance_form_error = "Informe uma descrição com até 100 caracteres."
+            return
+        if len(detail) > 250:
+            self.finance_form_error = "O detalhe deve ter até 250 caracteres."
+            return
+        try:
+            amount = Decimal(amount_value.replace(",", "."))
+        except (InvalidOperation, ValueError):
+            self.finance_form_error = "Informe um valor válido."
+            return
+        if not amount.is_finite() or amount <= 0:
+            self.finance_form_error = "O valor deve ser maior que zero."
+            return
+        try:
+            occurred_at = datetime.fromisoformat(occurred_at_value)
+        except ValueError:
+            self.finance_form_error = "Informe uma data e horário válidos."
+            return
+        if occurred_at.tzinfo is None:
+            occurred_at = occurred_at.replace(tzinfo=BARBERSHOP_TIMEZONE)
+        occurred_at = occurred_at.astimezone(BARBERSHOP_TIMEZONE)
+        if occurred_at > datetime.now(BARBERSHOP_TIMEZONE):
+            self.finance_form_error = "A data da movimentação não pode estar no futuro."
+            return
+
+        if is_edit and not self.finance_form_confirming:
+            self.finance_form_confirming = True
+            self.finance_form_error = ""
+            return
+
+        self.finance_form_submitting = True
+        self.finance_form_error = ""
+        self.finance_form_success_message = ""
+        yield
+
+        payload = {
+            "type": transaction_type,
+            "title": title,
+            "detail": detail,
+            "amount": str(amount),
+            "occurred_at": occurred_at.isoformat(),
+        }
+        endpoint = (
+            f"finance/transactions/{self.finance_form_transaction_id}"
+            if is_edit
+            else "finance/transactions"
+        )
+        response = await self._request(
+            "PATCH" if is_edit else "POST",
+            endpoint,
+            payload,
+            error_context="serviço financeiro",
+        )
+        if response is None or response.status_code not in (200, 201):
+            self.finance_form_error = (
+                "Não foi possível salvar as alterações. Tente novamente."
+                if is_edit
+                else "Não foi possível registrar a movimentação. Tente novamente."
+            )
+            self.finance_form_submitting = False
+            return
+
+        self.finance_form_open = False
+        self.finance_form_mode = "create"
+        self.finance_form_transaction_id = 0
+        self.finance_form_title = ""
+        self.finance_form_detail = ""
+        self.finance_form_amount = ""
+        self.finance_form_occurred_at = ""
+        self.finance_form_confirming = False
+        self.finance_form_success_message = (
+            "Movimentação atualizada com sucesso."
+            if is_edit
+            else "Movimentação registrada com sucesso."
+        )
+        self.finance_form_submitting = False
+        await self._load_finance_dashboard()
+
+    @rx.event
+    def request_finance_cancellation(self, transaction_id: int):
+        if self.finance_cancel_submitting:
+            return
+        if transaction_id <= 0:
+            return
+        if self.finance_cancel_transaction_id == transaction_id:
+            self.finance_cancel_transaction_id = 0
+        else:
+            self.finance_cancel_transaction_id = transaction_id
+        self.finance_cancel_reason = ""
+        self.finance_cancel_error = ""
+
+    @rx.event
+    async def cancel_finance_transaction(self, transaction_id: int):
+        if self.finance_cancel_submitting:
+            return
+        if transaction_id <= 0 or transaction_id != self.finance_cancel_transaction_id:
+            self.finance_cancel_error = "Selecione uma movimentação válida."
+            return
+        reason = self.finance_cancel_reason.strip()
+        if not reason or len(reason) > 250:
+            self.finance_cancel_error = (
+                "Informe o motivo do estorno (até 250 caracteres)."
+            )
+            return
+        self.finance_cancel_submitting = True
+        self.finance_cancel_error = ""
+        yield
+
+        response = await self._request(
+            "PATCH",
+            f"finance/transactions/{transaction_id}/cancel",
+            {"reason": reason},
+            error_context="serviço financeiro",
+        )
+        if response is None or response.status_code not in (200, 204):
+            self.finance_cancel_error = (
+                "Não foi possível estornar a movimentação. Tente novamente."
+            )
+            self.finance_cancel_submitting = False
+            return
+
+        self.finance_cancel_transaction_id = 0
+        self.finance_cancel_reason = ""
+        self.finance_cancel_submitting = False
+        self.finance_form_success_message = (
+            "Movimentação estornada. O histórico foi preservado."
+        )
+        await self._load_finance_dashboard()
+
+    def _set_finance_error(self, message: str):
+        self.finance_kpis_error = message
+        self.finance_chart_error = message
+        self.finance_summary_error = message
+        self.finance_transactions_error = message
+        self.finance_kpis_loading = False
+        self.finance_chart_loading = False
+        self.finance_summary_loading = False
+        self.finance_transactions_loading = False
+
+    def _refresh_finance_chart(self):
+        chart = prepare_cashflow_chart(
+            self.finance_cashflow.get(self.finance_period, []),
+            self.finance_chart_active_index,
+        )
+        self.finance_chart_points = chart["points"]
+        self.finance_chart_y_ticks = chart["y_ticks"]
+        self.finance_chart_inflow_path = chart["inflow_path"]
+        self.finance_chart_outflow_path = chart["outflow_path"]
+        self.finance_chart_inflow_area = chart["inflow_area"]
+        self.finance_chart_outflow_area = chart["outflow_area"]
+        self.finance_chart_active_index = chart.get("active_index", -1)
+
+    @rx.event
+    def set_finance_period(self, period: str):
+        if period not in {"6m", "12m", "year"}:
+            return
+        self.finance_period = period
+        self.finance_chart_active_index = -1
+        self._refresh_finance_chart()
+
+    @rx.event
+    def select_finance_chart_point(self, index: int):
+        if 0 <= index < len(self.finance_chart_points):
+            self.finance_chart_active_index = index
+
+    @rx.event
+    def toggle_finance_transactions(self):
+        self.finance_show_all_transactions = not self.finance_show_all_transactions
+
+    @rx.event
+    def toggle_finance_cancelled_transactions(self):
+        self.finance_show_cancelled_transactions = (
+            not self.finance_show_cancelled_transactions
+        )
+
+    @rx.var
+    def finance_filtered_transactions(self) -> list[dict[str, Any]]:
+        if self.finance_show_cancelled_transactions:
+            return self.finance_transactions
+        return [
+            transaction
+            for transaction in self.finance_transactions
+            if not transaction.get("is_cancelled", False)
+        ]
+
+    @rx.var
+    def finance_has_cancelled_transactions(self) -> bool:
+        return any(
+            transaction.get("is_cancelled", False)
+            for transaction in self.finance_transactions
+        )
+
+    @rx.var
+    def finance_visible_transactions(self) -> list[dict[str, Any]]:
+        if self.finance_show_all_transactions:
+            return self.finance_filtered_transactions
+        return self.finance_filtered_transactions[:3]
 
     @rx.event
     async def route_root(self):
@@ -3801,6 +4277,18 @@ def _app_sidebar(active_route: str) -> rx.Component:
                 ),
                 rx.fragment(),
             ),
+            rx.link(
+                _nav_icon("chart-no-axes-combined"),
+                rx.text("Financeiro"),
+                href="/financeiro",
+                tab_index=0,
+                aria_current="page" if active_route == "/financeiro" else None,
+                class_name=(
+                    "pc-nav-link pc-nav-link-active"
+                    if active_route == "/financeiro"
+                    else "pc-nav-link"
+                ),
+            ),
             width="100%",
             spacing="0",
             class_name="pc-nav",
@@ -3881,6 +4369,8 @@ def _app_shell(content: rx.Component, active_route: str) -> rx.Component:
                             if active_route == "/contacts"
                             else "Agenda"
                             if active_route == "/appointments"
+                            else "Financeiro"
+                            if active_route == "/financeiro"
                             else "Equipe"
                         ),
                         class_name="pc-breadcrumb-current",
@@ -7043,6 +7533,8 @@ def _profile_editor() -> rx.Component:
 
 
 def register_pages(app: rx.App):
+    from frontend.finance_page import finance_page
+
     app.add_page(
         login_page,
         route="/login",
@@ -7084,6 +7576,12 @@ def register_pages(app: rx.App):
         route="/appointments",
         title="Agenda | Lotus Barber",
         on_load=AuthState.require_appointment_access,
+    )
+    app.add_page(
+        finance_page,
+        route="/financeiro",
+        title="Financeiro | Lotus Barber",
+        on_load=AuthState.require_finance_access,
     )
     app.add_page(
         login_page,
