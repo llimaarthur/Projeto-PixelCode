@@ -163,6 +163,8 @@ Representa o serviço oferecido pela barbearia, como corte, barba, hidratação,
 - não pode haver agendamento sem barbeiro definido;
 - deve haver pelo menos um serviço associado;
 - não pode existir conflito de horário para o mesmo barbeiro;
+- as transições manuais são pendente → confirmado/cancelado e confirmado →
+  concluído/cancelado; concluído e cancelado são terminais;
 - o cliente não precisa ter acesso ao sistema para que o agendamento exista.
 
 ### 3.5 Pagamento
@@ -201,8 +203,9 @@ Representa o registro financeiro do serviço orçado ou realizado.
 ### 3.6 Movimentação financeira
 
 Representa uma entrada ou saída registrada manualmente pela equipe no ledger
-compartilhado da barbearia. Não é conciliada automaticamente com pagamentos de
-agendamentos ou com uma conta bancária.
+compartilhado da barbearia. Uma receita pode ser vinculada explicitamente a um
+cliente, a snapshots dos serviços e, opcionalmente, a um agendamento; isso não
+representa conciliação automática com uma conta bancária.
 
 ### Atributos conceituais
 
@@ -212,6 +215,8 @@ agendamentos ou com uma conta bancária.
 - título e detalhe opcional;
 - data_hora da movimentação;
 - usuário responsável pelo registro;
+- cliente e serviços associados quando informados;
+- agendamento e status anterior quando a receita estiver vinculada;
 - estado (ativa ou estornada), motivo e metadados de estorno;
 - histórico de alterações com valores anteriores, usuário e data/hora.
 
@@ -223,8 +228,12 @@ agendamentos ou com uma conta bancária.
 - a data da movimentação não pode estar no futuro;
 - lançamentos ativos podem ser editados, preservando cada versão anterior no
   histórico de auditoria;
-- lançamentos podem ser estornados com motivo, sem exclusão física, e não podem
-  ser editados nem estornados novamente;
+- somente o autor pode estornar seu lançamento; administradores podem estornar
+  qualquer lançamento. O estorno exige motivo e mantém autor, data e motivo no
+  histórico;
+- uma receita vinculada conclui o agendamento e o estorno restaura o status
+  anterior; lançamentos estornados não podem ser editados nem estornados outra
+  vez;
 - lançamentos estornados continuam visíveis no histórico, mas não participam
   dos KPIs, do fluxo de caixa, do resumo ou do saldo acumulado;
 - o saldo acumulado do painel é a soma de entradas menos saídas registradas,
@@ -256,7 +265,9 @@ As regras abaixo devem ser preservadas em qualquer operação:
 5. Um barbeiro não pode ter dois agendamentos no mesmo horário.
 6. O valor do serviço no agendamento deve ser preservado mesmo que o preço do catálogo mude mais tarde.
 7. Um agendamento pode existir sem pagamento, mas não sem dados mínimos de negócio.
-8. Movimentações financeiras são registradas separadamente e não inferidas a partir do status do agendamento.
+8. Movimentações financeiras não são inferidas do status do agendamento; uma
+   receita pode ser explicitamente vinculada a um cliente, serviços e
+   agendamento.
 9. A origem do contato e a data do primeiro contato são elementos importantes para registrar o histórico do relacionamento com a barbearia.
 
 ---
@@ -270,7 +281,9 @@ O fluxo principal é:
 3. O barbeiro cadastra ou seleciona o contato e cria o agendamento.
 4. A agenda é validada para evitar conflitos de horário.
 5. O atendimento é realizado.
-6. O pagamento pode ser registrado conforme a rotina da barbearia.
+6. O pagamento pode ser registrado conforme a rotina da barbearia; quando
+   vinculado a um agendamento, conclui-o e um eventual estorno restaura seu
+   status anterior.
 7. O histórico do cliente, do serviço e do relacionamento fica registrado para futuras consultas.
 
 ---

@@ -28,49 +28,19 @@ query "appointments/{appointment_id}/status" verb=PATCH {
       }
     } as $scope_check
 
-    conditional {
-      if ($appointment.status == "cancelled" && $input.status != "cancelled") {
-        function.run "Quick Start/validate_working_interval" {
-          input = {
-            start_at: $appointment.start_at
-            end_at: $appointment.end_at
-          }
-        } as $working_interval_check
-
-        db.query appointment {
-          where = (
-            $db.appointment.professional_id == $appointment.professional_id
-            && $db.appointment.id != $appointment.id
-            && $db.appointment.status != "cancelled"
-            && $db.appointment.start_at < $appointment.end_at
-            && $db.appointment.end_at > $appointment.start_at
-          )
-          return = {type: "list"}
-        } as $conflicts
-
-        precondition (($conflicts|count) == 0) {
-          error_type = "inputerror"
-          error = "Não é possível reativar este agendamento: o horário está ocupado."
-        }
-
-        db.query schedule_block {
-          where = (
-            $db.schedule_block.status == "active"
-            && (
-              $db.schedule_block.professional_id == null
-              || $db.schedule_block.professional_id == $appointment.professional_id
-            )
-            && $db.schedule_block.start_at < $appointment.end_at
-            && $db.schedule_block.end_at > $appointment.start_at
-          )
-          return = {type: "list"}
-        } as $block_conflicts
-
-        precondition (($block_conflicts|count) == 0) {
-          error_type = "inputerror"
-          error = "Não é possível reativar este agendamento: o horário está bloqueado."
-        }
-      }
+    precondition (
+      $input.status == $appointment.status
+      || (
+        $appointment.status == "pending"
+        && ($input.status == "confirmed" || $input.status == "cancelled")
+      )
+      || (
+        $appointment.status == "confirmed"
+        && ($input.status == "completed" || $input.status == "cancelled")
+      )
+    ) {
+      error_type = "inputerror"
+      error = "Transição de status inválida. Agendamentos concluídos ou cancelados não podem ser reabertos."
     }
 
     db.edit appointment {

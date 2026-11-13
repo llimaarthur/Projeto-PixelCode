@@ -1,0 +1,4 @@
+schema: spec-driven
+created: 2026-11-11
+goal: Permitir transições válidas de status, estorno autorizado com auditoria,
+  registros vinculados a clientes/serviços e listagem paginada no backend.

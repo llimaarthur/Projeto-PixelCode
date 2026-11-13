@@ -18,6 +18,17 @@ table finance_transaction {
     int created_by {
       table = "user"
     }
+    int contact_id? {
+      table = "contact"
+    }
+    text contact_name_snapshot? filters=trim
+    json services_snapshot?
+    int appointment_id? {
+      table = "appointment"
+    }
+    enum appointment_status_before_payment? {
+      values = ["pending", "confirmed"]
+    }
     timestamp cancelled_at?
     int cancelled_by? {
       table = "user"
@@ -30,6 +41,7 @@ table finance_transaction {
     {type: "btree", field: [{name: "occurred_at", op: "desc"}]}
     {type: "btree", field: [{name: "type", op: "asc"}, {name: "occurred_at", op: "desc"}]}
     {type: "btree", field: [{name: "created_by", op: "asc"}]}
+    {type: "btree", field: [{name: "appointment_id", op: "asc"}, {name: "status", op: "asc"}]}
   ]
   guid = "engF48ZSTB5NLMAUHOBwyhCJozg"
 }

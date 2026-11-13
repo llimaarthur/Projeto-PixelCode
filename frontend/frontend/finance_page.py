@@ -603,7 +603,7 @@ def _transaction_row(item: rx.Var) -> rx.Component:
                 class_name="pc-finance-cancelled-badge",
             ),
             rx.cond(
-                AuthState.finance_api_available & item["can_manage"],
+                item["can_manage"],
                 rx.hstack(
                     rx.button(
                         "Editar",
@@ -620,13 +620,17 @@ def _transaction_row(item: rx.Var) -> rx.Component:
                         color_scheme="gray",
                         class_name="pc-finance-transaction-action",
                     ),
-                    rx.button(
-                        "Estornar",
-                        type="button",
-                        on_click=AuthState.request_finance_cancellation(item["id"]),
-                        variant="soft",
-                        color_scheme="red",
-                        class_name="pc-finance-transaction-action pc-finance-transaction-action-danger",
+                    rx.cond(
+                        item["can_cancel"],
+                        rx.button(
+                            "Estornar",
+                            type="button",
+                            on_click=AuthState.request_finance_cancellation(item["id"]),
+                            variant="soft",
+                            color_scheme="red",
+                            class_name="pc-finance-transaction-action pc-finance-transaction-action-danger",
+                        ),
+                        rx.fragment(),
                     ),
                     class_name="pc-finance-transaction-actions",
                     spacing="3",
@@ -724,20 +728,6 @@ def _transactions_section() -> rx.Component:
                     ),
                     rx.fragment(),
                 ),
-                rx.cond(
-                    AuthState.finance_filtered_transactions.length() > 3,
-                    rx.button(
-                        rx.cond(
-                            AuthState.finance_show_all_transactions,
-                            "Mostrar menos",
-                            "Ver todas →",
-                        ),
-                        type="button",
-                        on_click=AuthState.toggle_finance_transactions,
-                        class_name="pc-finance-more-link",
-                    ),
-                    rx.fragment(),
-                ),
                 class_name="pc-finance-transaction-list-controls",
                 align="center",
                 spacing="3",
@@ -757,22 +747,26 @@ def _transactions_section() -> rx.Component:
                 _block_error(AuthState.finance_transactions_error),
                 rx.cond(
                     AuthState.finance_filtered_transactions.length() == 0,
-                    rx.cond(
-                        AuthState.finance_transactions.length() > 0,
-                        _empty_state(
-                            "Nenhuma movimentação ativa",
-                            "As movimentações estornadas estão ocultas. Você pode exibi-las pelo controle acima.",
+                    rx.vstack(
+                        rx.cond(
+                            AuthState.finance_has_cancelled_transactions
+                            & ~AuthState.finance_show_cancelled_transactions,
+                            _empty_state(
+                                "Nenhuma movimentação ativa",
+                                "As movimentações estornadas estão ocultas. Você pode exibi-las pelo controle acima.",
+                            ),
+                            _empty_state(
+                                "Nenhuma movimentação recente",
+                                "As entradas e saídas aparecerão aqui quando disponíveis.",
+                            ),
                         ),
-                        _empty_state(
-                            "Nenhuma movimentação recente",
-                            "As entradas e saídas aparecerão aqui quando disponíveis.",
-                        ),
+                        class_name="pc-finance-page-list",
+                        align="stretch",
+                        width="100%",
                     ),
                     rx.vstack(
-                        rx.foreach(
-                            AuthState.finance_visible_transactions,
-                            _transaction_row,
-                        ),
+                        rx.foreach(AuthState.finance_visible_transactions, _transaction_row),
+                        class_name="pc-finance-page-list",
                         id="finance-transactions",
                         align="stretch",
                         spacing="0",
@@ -780,6 +774,39 @@ def _transactions_section() -> rx.Component:
                     ),
                 ),
             ),
+        ),
+        rx.cond(
+            (AuthState.finance_transactions_error == "")
+            & ~AuthState.finance_transactions_loading,
+            rx.hstack(
+                rx.text(
+                    AuthState.finance_transactions_summary,
+                    class_name="pc-finance-card-subtitle",
+                    role="status",
+                ),
+                rx.spacer(),
+                rx.button(
+                    "Anterior",
+                    type="button",
+                    disabled=(AuthState.finance_transactions_page <= 1),
+                    on_click=AuthState.previous_finance_transactions_page,
+                    class_name="pc-finance-more-link",
+                ),
+                rx.button(
+                    "Próxima",
+                    type="button",
+                    disabled=(
+                        AuthState.finance_transactions_page
+                        >= AuthState.finance_transactions_page_count
+                    ),
+                    on_click=AuthState.next_finance_transactions_page,
+                    class_name="pc-finance-more-link",
+                ),
+                class_name="pc-finance-pagination",
+                align="center",
+                width="100%",
+            ),
+            rx.fragment(),
         ),
         aria_label="Movimentações recentes",
         class_name="pc-finance-card pc-finance-transactions",
@@ -810,6 +837,28 @@ def _finance_kpis() -> rx.Component:
                 ),
             ),
         ),
+    )
+
+
+def _finance_selected_service(item: rx.Var) -> rx.Component:
+    return rx.hstack(
+        rx.vstack(
+            rx.text(item["name"], class_name="pc-finance-service-name"),
+            rx.text(item["price_display"], class_name="pc-finance-card-subtitle"),
+            align="start",
+            spacing="1",
+        ),
+        rx.spacer(),
+        rx.button(
+            "Remover",
+            type="button",
+            disabled=AuthState.finance_form_appointment_id > 0,
+            on_click=AuthState.remove_finance_form_service(item["id"]),
+            class_name="pc-finance-more-link",
+        ),
+        align="center",
+        class_name="pc-finance-selected-service",
+        width="100%",
     )
 
 
@@ -876,6 +925,114 @@ def _finance_entry_form() -> rx.Component:
                         role="group",
                         aria_label="Tipo da movimentação",
                         spacing="2",
+                    ),
+                    rx.cond(
+                        (AuthState.finance_form_mode == "create")
+                        & (AuthState.finance_form_type == "income"),
+                        rx.vstack(
+                            rx.vstack(
+                                rx.el.label(
+                                    "Cliente cadastrado",
+                                    html_for="finance-contact",
+                                    class_name="pc-field-label",
+                                ),
+                                rx.select(
+                                    AuthState.finance_contact_options,
+                                    id="finance-contact",
+                                    value=AuthState.finance_form_contact_option,
+                                    on_change=AuthState.set_finance_form_contact,
+                                    disabled=AuthState.finance_form_options_loading,
+                                    class_name="pc-input",
+                                    width="100%",
+                                ),
+                                class_name="pc-field",
+                                align="stretch",
+                                spacing="2",
+                                width="100%",
+                            ),
+                            rx.vstack(
+                                rx.el.label(
+                                    "Serviços cadastrados · selecione para adicionar",
+                                    html_for="finance-service",
+                                    class_name="pc-field-label",
+                                ),
+                                rx.select(
+                                    AuthState.finance_service_options,
+                                    id="finance-service",
+                                    value=AuthState.finance_form_service_option,
+                                    on_change=AuthState.set_finance_form_service_option,
+                                    disabled=(
+                                        (AuthState.finance_form_contact_id == 0)
+                                        | (AuthState.finance_form_appointment_id > 0)
+                                        | AuthState.finance_form_options_loading
+                                    ),
+                                    class_name="pc-input",
+                                    width="100%",
+                                ),
+                                rx.foreach(
+                                    AuthState.finance_selected_services,
+                                    _finance_selected_service,
+                                ),
+                                class_name="pc-field",
+                                align="stretch",
+                                spacing="2",
+                                width="100%",
+                            ),
+                            rx.cond(
+                                AuthState.finance_form_contact_id > 0,
+                                rx.vstack(
+                                    rx.el.label(
+                                        "Agendamento vinculado (opcional)",
+                                        html_for="finance-appointment",
+                                        class_name="pc-field-label",
+                                    ),
+                                    rx.select(
+                                        AuthState.finance_appointment_options_labels,
+                                        id="finance-appointment",
+                                        value=AuthState.finance_form_appointment_option,
+                                        on_change=AuthState.set_finance_form_appointment,
+                                        disabled=AuthState.finance_appointment_options_loading,
+                                        class_name="pc-input",
+                                        width="100%",
+                                    ),
+                                    rx.cond(
+                                        AuthState.finance_appointment_options_loading,
+                                        rx.text(
+                                            "Carregando agendamentos do cliente...",
+                                            role="status",
+                                            class_name="pc-finance-card-subtitle",
+                                        ),
+                                        rx.fragment(),
+                                    ),
+                                    class_name="pc-field",
+                                    align="stretch",
+                                    width="100%",
+                                ),
+                                rx.fragment(),
+                            ),
+                            rx.cond(
+                                AuthState.finance_form_options_loading,
+                                rx.text(
+                                    "Carregando clientes e serviços...",
+                                    role="status",
+                                    class_name="pc-finance-card-subtitle",
+                                ),
+                                rx.cond(
+                                    AuthState.finance_form_options_error != "",
+                                    rx.text(
+                                        AuthState.finance_form_options_error,
+                                        role="alert",
+                                        class_name="pc-finance-form-error",
+                                    ),
+                                    rx.fragment(),
+                                ),
+                            ),
+                            align="stretch",
+                            spacing="3",
+                            width="100%",
+                            class_name="pc-finance-service-selection",
+                        ),
+                        rx.fragment(),
                     ),
                     rx.hstack(
                         rx.vstack(

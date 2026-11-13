@@ -21,6 +21,17 @@ table finance_transaction_revision {
     text previous_detail? filters=trim
     timestamp previous_occurred_at
     text reason? filters=trim
+    int previous_contact_id? {
+      table = "contact"
+    }
+    text previous_contact_name_snapshot? filters=trim
+    json previous_services_snapshot?
+    int previous_appointment_id? {
+      table = "appointment"
+    }
+    enum previous_appointment_status? {
+      values = ["pending", "confirmed"]
+    }
   }
 
   index = [

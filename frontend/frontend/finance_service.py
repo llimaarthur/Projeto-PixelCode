@@ -113,20 +113,50 @@ def finance_dashboard_from_transactions(
             raise FinanceDataError(
                 "O identificador de uma movimentação é inválido."
             ) from error
+        try:
+            creator_id = int(item.get("created_by") or 0)
+            contact_id = int(item.get("contact_id") or 0)
+            appointment_id = int(item.get("appointment_id") or 0)
+        except (TypeError, ValueError) as error:
+            raise FinanceDataError(
+                "Uma referência da movimentação financeira é inválida."
+            ) from error
         occurred = _finance_datetime(item.get("occurred_at"), "uma movimentação financeira")
         amount = _decimal(item.get("amount"), "movimentação")
         if amount <= 0:
             raise FinanceDataError("O valor de uma movimentação deve ser positivo.")
+        raw_services = item.get("services_snapshot") or []
+        if not isinstance(raw_services, list) or not all(
+            isinstance(service, dict) for service in raw_services
+        ):
+            raise FinanceDataError("A lista de serviços da movimentação é inválida.")
+        service_names = [
+            str(service.get("name") or "").strip()
+            for service in raw_services
+            if str(service.get("name") or "").strip()
+        ]
+        contact_name = str(item.get("contact_name_snapshot") or "").strip()
+        detail_parts = [str(item.get("detail") or "").strip()]
+        cancellation_reason = str(item.get("cancellation_reason") or "").strip()
+        if status == "cancelled" and cancellation_reason:
+            detail_parts.append(f"Estorno: {cancellation_reason}")
         normalized_transactions.append(
             {
                 "id": transaction_id,
+                "created_by": creator_id,
+                "contact_id": contact_id,
+                "appointment_id": appointment_id,
                 "type": kind,
                 "title": str(item.get("title", "")),
-                "detail": str(item.get("detail") or ""),
+                "detail": " · ".join(part for part in detail_parts if part),
                 "amount": float(amount),
                 "occurred_at": occurred.isoformat(),
                 "status": status,
-                "cancellation_reason": str(item.get("cancellation_reason") or ""),
+                "cancellation_reason": cancellation_reason,
+                "contact_name_snapshot": contact_name,
+                "services_snapshot": raw_services,
+                "service_summary": ", ".join(service_names),
+                "can_cancel": False,
             }
         )
 
@@ -554,28 +584,58 @@ def _normalize_finance_dashboard_complete(
             raise FinanceDataError(
                 "O identificador de uma movimentação é inválido."
             ) from error
+        try:
+            creator_id = int(item.get("created_by") or 0)
+            contact_id = int(item.get("contact_id") or 0)
+            appointment_id = int(item.get("appointment_id") or 0)
+        except (TypeError, ValueError) as error:
+            raise FinanceDataError(
+                "Uma referência da movimentação financeira é inválida."
+            ) from error
         status = str(item.get("status", "active"))
-        detail = str(item.get("detail", ""))
+        if status not in {"active", "cancelled"}:
+            raise FinanceDataError("O status de uma movimentação financeira é inválido.")
+        raw_services = item.get("services_snapshot") or []
+        if not isinstance(raw_services, list) or not all(
+            isinstance(service, dict) for service in raw_services
+        ):
+            raise FinanceDataError("A lista de serviços da movimentação é inválida.")
+        contact_name = str(item.get("contact_name_snapshot") or "").strip()
+        service_names = [
+            str(service.get("name") or "").strip()
+            for service in raw_services
+            if str(service.get("name") or "").strip()
+        ]
+        detail_parts = [str(item.get("detail") or "").strip()]
+        if contact_name:
+            detail_parts.append(f"Cliente: {contact_name}")
+        if service_names:
+            detail_parts.append(f"Serviços: {', '.join(service_names)}")
         cancellation_reason = str(item.get("cancellation_reason") or "")
         if status == "cancelled" and cancellation_reason:
-            detail = (
-                f"{detail} · Estorno: {cancellation_reason}"
-                if detail
-                else f"Estorno: {cancellation_reason}"
-            )
+            detail_parts.append(f"Estorno: {cancellation_reason}")
         normalized_transactions.append(
             {
                 "id": transaction_id,
+                "created_by": creator_id,
+                "contact_id": contact_id,
+                "appointment_id": appointment_id,
                 "type": kind,
                 "title": str(item.get("title", "")),
-                "detail": detail,
+                "detail": " · ".join(part for part in detail_parts if part),
                 "amount": float(amount),
                 "signed_amount": float(amount if kind == "income" else -amount),
                 "date_label": relative_date,
                 "input_datetime": occurred.strftime("%Y-%m-%dT%H:%M"),
+                "status": status,
                 "is_cancelled": status == "cancelled",
+                "contact_name_snapshot": contact_name,
+                "services_snapshot": raw_services,
+                "service_summary": ", ".join(service_names),
+                "cancellation_reason": cancellation_reason,
                 "can_manage": transaction_id > 0
                 and status == "active",
+                "can_cancel": False,
                 "icon": "arrow-up-right" if kind == "income" else "arrow-down-right",
             }
         )

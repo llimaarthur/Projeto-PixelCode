@@ -866,6 +866,25 @@ input {
   gap: 16px;
 }
 
+.pc-finance-service-selection {
+  border-top: 1px solid var(--pc-border);
+  padding-top: 14px;
+}
+
+.pc-finance-selected-service {
+  min-height: 48px;
+  border: 1px solid var(--pc-border);
+  border-radius: 9px;
+  padding: 8px 12px;
+  background: var(--pc-surface-soft);
+}
+
+.pc-finance-service-name {
+  color: var(--pc-text);
+  font-size: 12px;
+  font-weight: 600;
+}
+
 .pc-finance-type-button {
   min-height: 38px;
   border: 1px solid var(--pc-border);
@@ -1334,6 +1353,12 @@ input {
   flex-wrap: wrap;
   justify-content: flex-end;
   gap: 4px 12px;
+}
+
+.pc-finance-pagination {
+  border-top: 1px solid rgb(52 57 67 / 70%);
+  margin-top: 10px;
+  padding-top: 12px;
 }
 
 .pc-finance-transaction {
@@ -2431,6 +2456,10 @@ input {
 @media (max-width: 700px) {
   .pc-finance-form-row {
     flex-direction: column;
+  }
+
+  .pc-finance-pagination {
+    flex-wrap: wrap;
   }
 
   .pc-finance-add-button {

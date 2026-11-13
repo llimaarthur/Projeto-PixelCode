@@ -160,6 +160,25 @@ def _format_service_price(price: Decimal) -> str:
     return "R$ " + formatted.replace(",", "\0").replace(".", ",").replace("\0", ".")
 
 
+def _appointment_status_from_response(payload: Any, appointment_id: int) -> str:
+    if isinstance(payload, dict) and isinstance(payload.get("data"), dict):
+        payload = payload["data"]
+    if not isinstance(payload, dict):
+        raise ValueError("A confirmação do status é inválida.")
+    try:
+        response_id = int(payload.get("id") or 0)
+    except (TypeError, ValueError) as error:
+        raise ValueError(
+            "O identificador do agendamento confirmado é inválido."
+        ) from error
+    if response_id != appointment_id:
+        raise ValueError("A API confirmou um agendamento diferente.")
+    status = str(payload.get("status") or "")
+    if status not in APPOINTMENT_STATUS_LABELS:
+        raise ValueError("A API confirmou um status inválido.")
+    return status
+
+
 def _format_service_duration(duration_minutes: int) -> str:
     hours, minutes = divmod(duration_minutes, 60)
     if hours and minutes:
@@ -625,6 +644,7 @@ class AuthState(rx.State):
     appointment_block_error: str = ""
     appointment_block_submitting: bool = False
     finance_kpis: list[dict[str, Any]] = []
+    finance_dashboard_loaded: bool = False
     finance_kpis_loading: bool = True
     finance_kpis_error: str = ""
     finance_cashflow: dict[str, list[dict[str, Any]]] = {}
@@ -645,10 +665,20 @@ class AuthState(rx.State):
     finance_transactions: list[dict[str, Any]] = []
     finance_transactions_loading: bool = True
     finance_transactions_error: str = ""
-    finance_show_all_transactions: bool = False
+    finance_transactions_total: int = 0
+    finance_transactions_page: int = 1
+    finance_transactions_page_size: int = 3
+    finance_has_cancelled_transactions: bool = False
     finance_show_cancelled_transactions: bool = False
     finance_api_available: bool = False
     finance_mock_mode: bool = False
+    finance_contacts: list[dict[str, Any]] = []
+    finance_services: list[dict[str, Any]] = []
+    finance_appointment_options: list[dict[str, Any]] = []
+    finance_appointment_options_loading: bool = False
+    finance_form_options_loading: bool = False
+    finance_form_options_loaded: bool = False
+    finance_form_options_error: str = ""
     finance_form_open: bool = False
     finance_form_type: str = "income"
     finance_form_mode: str = "create"
@@ -657,6 +687,12 @@ class AuthState(rx.State):
     finance_form_detail: str = ""
     finance_form_amount: str = ""
     finance_form_occurred_at: str = ""
+    finance_form_contact_id: int = 0
+    finance_form_contact_option: str = "Selecione um cliente..."
+    finance_form_service_option: str = "Selecione um serviço..."
+    finance_form_service_ids: list[int] = []
+    finance_form_appointment_id: int = 0
+    finance_form_appointment_option: str = "Sem vínculo de agendamento"
     finance_form_confirming: bool = False
     finance_form_error: str = ""
     finance_form_success_message: str = ""
@@ -874,10 +910,11 @@ class AuthState(rx.State):
             yield rx.redirect("/app")
             return
 
-        self.finance_kpis_loading = True
-        self.finance_chart_loading = True
-        self.finance_summary_loading = True
-        self.finance_transactions_loading = True
+        if not self.finance_dashboard_loaded:
+            self.finance_kpis_loading = True
+            self.finance_chart_loading = True
+            self.finance_summary_loading = True
+            self.finance_transactions_loading = True
         self.finance_kpis_error = ""
         self.finance_chart_error = ""
         self.finance_summary_error = ""
@@ -888,10 +925,11 @@ class AuthState(rx.State):
         await self._load_finance_dashboard()
 
     async def _load_finance_dashboard(self):
-        self.finance_kpis_loading = True
-        self.finance_chart_loading = True
-        self.finance_summary_loading = True
-        self.finance_transactions_loading = True
+        if not self.finance_dashboard_loaded:
+            self.finance_kpis_loading = True
+            self.finance_chart_loading = True
+            self.finance_summary_loading = True
+            self.finance_transactions_loading = True
         self.finance_kpis_error = ""
         self.finance_chart_error = ""
         self.finance_summary_error = ""
@@ -954,6 +992,13 @@ class AuthState(rx.State):
         self.finance_summary = dashboard["summary"]
         self.finance_summary_empty = not bool(dashboard["summary"])
         self.finance_transactions = dashboard["transactions"]
+        self._apply_finance_transaction_permissions(self.finance_transactions)
+        self.finance_dashboard_loaded = True
+        self.finance_transactions_total = len(dashboard["transactions"])
+        self.finance_has_cancelled_transactions = any(
+            transaction.get("is_cancelled", False)
+            for transaction in dashboard["transactions"]
+        )
         self.finance_period = "6m"
         self.finance_chart_active_index = -1
         self._refresh_finance_chart()
@@ -966,9 +1011,214 @@ class AuthState(rx.State):
         self.finance_chart_loading = False
         self.finance_summary_loading = False
         self.finance_transactions_loading = False
+        if not mock_enabled:
+            await self._load_finance_transactions()
+
+    async def _load_finance_transactions(self):
+        self.finance_transactions_loading = True
+        self.finance_transactions_error = ""
+        response = await self._request(
+            "GET",
+            "finance/transactions",
+            error_context="serviço financeiro",
+            query_params={
+                "page": self.finance_transactions_page,
+                "include_cancelled": self.finance_show_cancelled_transactions,
+            },
+        )
+        if response is None:
+            self.finance_transactions_error = self.error_message
+            self.finance_transactions_loading = False
+            return
+        if response.status_code != 200:
+            self.finance_transactions_error = _api_error_message(
+                response,
+                "Não foi possível carregar as movimentações. Tente novamente.",
+            )
+            self.finance_transactions_loading = False
+            return
+
+        try:
+            result = response.json()
+            if isinstance(result, dict) and isinstance(result.get("data"), dict):
+                result = result["data"]
+            if not isinstance(result, dict) or not isinstance(result.get("items"), list):
+                raise ValueError("A resposta paginada de movimentações é inválida.")
+            total = int(result.get("total", -1))
+            page = int(result.get("page", self.finance_transactions_page))
+            page_size = int(result.get("page_size", self.finance_transactions_page_size))
+            has_cancelled = result.get("has_cancelled", False)
+            if total < 0 or page < 1 or page_size != self.finance_transactions_page_size:
+                raise ValueError("Os metadados de paginação são inválidos.")
+            if not isinstance(has_cancelled, bool):
+                raise ValueError("O indicador de estornos é inválido.")
+            page_dashboard = finance_dashboard_from_transactions(
+                {"transactions": result["items"]}
+            )
+            transactions = page_dashboard["transactions"]
+            if len(transactions) > self.finance_transactions_page_size:
+                raise ValueError("A API excedeu o tamanho de página solicitado.")
+            for transaction in transactions:
+                self._apply_finance_transaction_permissions([transaction])
+        except (FinanceDataError, KeyError, TypeError, ValueError) as error:
+            print(f"[finance] Invalid paginated response: {error}")
+            self.finance_transactions_error = (
+                "As movimentações estão temporariamente indisponíveis."
+            )
+            self.finance_transactions_loading = False
+            return
+
+        page_count = max(1, ceil(total / self.finance_transactions_page_size))
+        if self.finance_transactions_page > page_count:
+            self.finance_transactions_page = page_count
+            self.finance_transactions_loading = False
+            await self._load_finance_transactions()
+            return
+        self.finance_transactions = transactions
+        self.finance_transactions_total = total
+        self.finance_transactions_page = page
+        self.finance_has_cancelled_transactions = has_cancelled
+        self.finance_transactions_loading = False
+
+    def _apply_finance_transaction_permissions(
+        self,
+        transactions: list[dict[str, Any]],
+    ):
+        for transaction in transactions:
+            is_active = transaction["status"] == "active"
+            transaction["can_manage"] = (
+                self.finance_api_available
+                and is_active
+                and transaction["id"] > 0
+            )
+            transaction["can_cancel"] = (
+                transaction["can_manage"]
+                and (
+                    self.role == "admin"
+                    or transaction["created_by"] == self.user_id
+                )
+            )
+
+    async def _load_finance_form_options(self):
+        self.finance_form_options_loading = True
+        self.finance_form_options_error = ""
+        contacts: list[dict[str, Any]] = []
+        page = 1
+        total_contacts = 0
+        while True:
+            response = await self._request(
+                "GET",
+                "contacts",
+                error_context="clientes do financeiro",
+                query_params={
+                    "status": "active",
+                    "page": page,
+                    "page_size": 50,
+                },
+            )
+            if response is None or response.status_code != 200:
+                self.finance_form_options_error = (
+                    self.error_message
+                    if response is None
+                    else _api_error_message(
+                        response,
+                        "Não foi possível carregar os clientes cadastrados.",
+                    )
+                )
+                self.finance_form_options_loading = False
+                return
+            try:
+                result = response.json()
+                if isinstance(result, dict) and isinstance(result.get("data"), dict):
+                    result = result["data"]
+                if isinstance(result, list):
+                    items = result
+                    total_contacts = len(result)
+                elif isinstance(result, dict) and isinstance(result.get("items"), list):
+                    items = result["items"]
+                    if page == 1:
+                        total_contacts = int(result.get("total", len(items)))
+                else:
+                    raise ValueError("A resposta de clientes é inválida.")
+                for item in items:
+                    if not isinstance(item, dict):
+                        raise ValueError("Um cliente retornado é inválido.")
+                    contacts.append(
+                        {
+                            "id": int(item["id"]),
+                            "name": str(item["name"]).strip(),
+                            "phone": str(item.get("phone") or ""),
+                        }
+                    )
+                if len(contacts) >= total_contacts:
+                    break
+                if not items:
+                    raise ValueError("A paginação de clientes terminou antes do total informado.")
+                page += 1
+            except (KeyError, TypeError, ValueError, InvalidOperation) as error:
+                print(f"[finance] Invalid contact options: {error}")
+                self.finance_form_options_error = (
+                    "A lista de clientes retornada é inválida."
+                )
+                self.finance_form_options_loading = False
+                return
+
+        services_response = await self._request(
+            "GET",
+            "services",
+            error_context="serviços do financeiro",
+        )
+        if services_response is None or services_response.status_code != 200:
+            self.finance_form_options_error = (
+                self.error_message
+                if services_response is None
+                else _api_error_message(
+                    services_response,
+                    "Não foi possível carregar os serviços cadastrados.",
+                )
+            )
+            self.finance_form_options_loading = False
+            return
+        try:
+            result = services_response.json()
+            if isinstance(result, dict) and isinstance(result.get("data"), list):
+                result = result["data"]
+            if not isinstance(result, list):
+                raise ValueError("A lista de serviços é inválida.")
+            services: list[dict[str, Any]] = []
+            for item in result:
+                if not isinstance(item, dict):
+                    raise ValueError("Um serviço retornado é inválido.")
+                price = Decimal(str(item["price"]))
+                service_id = int(item["id"])
+                name = str(item["name"]).strip()
+                if not name or not price.is_finite() or price < 0:
+                    raise ValueError("Um serviço retornado possui dados inválidos.")
+                services.append(
+                    {
+                        "id": service_id,
+                        "name": name,
+                        "price": str(price),
+                        "price_display": _format_service_price(price),
+                    }
+                )
+        except (KeyError, TypeError, ValueError, InvalidOperation) as error:
+            print(f"[finance] Invalid service options: {error}")
+            self.finance_form_options_error = (
+                "A lista de serviços retornada é inválida."
+            )
+            self.finance_form_options_loading = False
+            return
+
+        self.finance_contacts = contacts
+        self.finance_services = sorted(
+            services, key=lambda service: service["name"].casefold()
+        )
+        self.finance_form_options_loaded = True
+        self.finance_form_options_loading = False
 
     @rx.event
-    def set_finance_form_open(self, is_open: bool):
+    async def set_finance_form_open(self, is_open: bool):
         if is_open:
             self.finance_form_mode = "create"
             self.finance_form_transaction_id = 0
@@ -978,6 +1228,14 @@ class AuthState(rx.State):
             self.finance_form_title = ""
             self.finance_form_detail = ""
             self.finance_form_amount = ""
+            self.finance_form_contact_id = 0
+            self.finance_form_contact_option = "Selecione um cliente..."
+            self.finance_form_service_option = "Selecione um serviço..."
+            self.finance_form_service_ids = []
+            self.finance_form_appointment_id = 0
+            self.finance_form_appointment_option = "Sem vínculo de agendamento"
+            self.finance_appointment_options = []
+            self.finance_appointment_options_loading = False
             self.finance_form_confirming = False
             self.finance_form_occurred_at = datetime.now(
                 BARBERSHOP_TIMEZONE
@@ -989,9 +1247,20 @@ class AuthState(rx.State):
             self.finance_form_detail = ""
             self.finance_form_amount = ""
             self.finance_form_occurred_at = ""
+            self.finance_form_contact_id = 0
+            self.finance_form_contact_option = "Selecione um cliente..."
+            self.finance_form_service_option = "Selecione um serviço..."
+            self.finance_form_service_ids = []
+            self.finance_form_appointment_id = 0
+            self.finance_form_appointment_option = "Sem vínculo de agendamento"
+            self.finance_appointment_options = []
+            self.finance_appointment_options_loading = False
             self.finance_form_confirming = False
         self.finance_form_open = is_open
         self.finance_form_error = ""
+        if is_open and self.finance_api_available and not self.finance_form_options_loaded:
+            yield
+            await self._load_finance_form_options()
 
     @rx.event
     def edit_finance_transaction(
@@ -1025,6 +1294,208 @@ class AuthState(rx.State):
             self.finance_form_type = transaction_type
             self.finance_form_error = ""
             self.finance_form_confirming = False
+            if transaction_type == "expense":
+                self.finance_form_contact_id = 0
+                self.finance_form_contact_option = "Selecione um cliente..."
+                self.finance_form_service_ids = []
+                self.finance_form_appointment_id = 0
+                self.finance_form_appointment_option = "Sem vínculo de agendamento"
+                self.finance_appointment_options = []
+                self.finance_appointment_options_loading = False
+
+    @rx.event
+    async def set_finance_form_contact(self, value: str):
+        if value == "Selecione um cliente...":
+            self.finance_form_contact_id = 0
+            self.finance_form_contact_option = value
+            self.finance_form_appointment_id = 0
+            self.finance_form_appointment_option = "Sem vínculo de agendamento"
+            self.finance_appointment_options = []
+            self.finance_appointment_options_loading = False
+            self.finance_form_options_error = ""
+            return
+        try:
+            contact_id = int(value.rsplit("#", 1)[1])
+        except (IndexError, ValueError):
+            self.finance_form_error = "Selecione um cliente cadastrado."
+            return
+        if not any(contact["id"] == contact_id for contact in self.finance_contacts):
+            self.finance_form_error = "O cliente selecionado não está mais disponível."
+            return
+
+        was_linked_to_appointment = self.finance_form_appointment_id > 0
+        self.finance_form_contact_id = contact_id
+        self.finance_form_contact_option = value
+        self.finance_form_appointment_id = 0
+        self.finance_form_appointment_option = "Sem vínculo de agendamento"
+        self.finance_form_options_error = ""
+        self.finance_appointment_options = []
+        self.finance_appointment_options_loading = True
+        if was_linked_to_appointment:
+            self.finance_form_amount = ""
+        self.finance_form_error = ""
+        yield
+        response = await self._request(
+            "GET",
+            "finance/appointment-options",
+            error_context="agendamentos do cliente",
+            query_params={"contact_id": contact_id},
+        )
+        if response is None or response.status_code != 200:
+            if self.finance_form_contact_id != contact_id:
+                return
+            self.finance_form_options_error = (
+                self.error_message
+                if response is None
+                else _api_error_message(
+                    response,
+                    "Não foi possível carregar os agendamentos deste cliente.",
+                )
+            )
+            self.finance_appointment_options_loading = False
+            return
+        try:
+            appointments = response.json()
+            if isinstance(appointments, dict) and isinstance(appointments.get("data"), list):
+                appointments = appointments["data"]
+            if not isinstance(appointments, list):
+                raise ValueError("A lista de agendamentos é inválida.")
+            options = []
+            for item in appointments:
+                if not isinstance(item, dict):
+                    raise ValueError("Um agendamento retornado é inválido.")
+                status = str(item["status"])
+                if status not in {"pending", "confirmed"}:
+                    raise ValueError("O status do agendamento é inválido.")
+                start_at = _parse_appointment_datetime(item["start_at"])
+                services_snapshot = item.get("services_snapshot", [])
+                if not isinstance(services_snapshot, list) or not all(
+                    isinstance(service, dict) for service in services_snapshot
+                ):
+                    raise ValueError("Os serviços do agendamento são inválidos.")
+                appointment_services = [
+                    {
+                        "id": int(service["id"]),
+                        "name": str(service["name"]),
+                        "price": str(Decimal(str(service["price"]))),
+                        "price_display": _format_service_price(
+                            Decimal(str(service["price"]))
+                        ),
+                    }
+                    for service in services_snapshot
+                ]
+                appointment_total = Decimal(str(item["total_price"]))
+                if not appointment_total.is_finite() or appointment_total < 0:
+                    raise ValueError("O total do agendamento é inválido.")
+                options.append(
+                    {
+                        "id": int(item["id"]),
+                        "label": (
+                            f"{start_at:%d/%m/%Y %H:%M} · "
+                            f"{APPOINTMENT_STATUS_LABELS[status]} · #{int(item['id'])}"
+                        ),
+                        "total_price": str(appointment_total),
+                        "services": appointment_services,
+                    }
+                )
+        except (KeyError, TypeError, ValueError) as error:
+            print(f"[finance] Invalid appointment options: {error}")
+            if self.finance_form_contact_id != contact_id:
+                return
+            self.finance_form_options_error = (
+                "A lista de agendamentos retornada é inválida."
+            )
+            self.finance_appointment_options_loading = False
+            return
+
+        if self.finance_form_contact_id != contact_id:
+            return
+        self.finance_appointment_options = options
+        self.finance_form_options_error = ""
+        self.finance_appointment_options_loading = False
+
+    @rx.event
+    def set_finance_form_appointment(self, value: str):
+        if value == "Sem vínculo de agendamento":
+            was_linked_to_appointment = self.finance_form_appointment_id > 0
+            self.finance_form_appointment_id = 0
+            self.finance_form_appointment_option = value
+            if was_linked_to_appointment and not self.finance_form_service_ids:
+                self.finance_form_amount = ""
+            self.finance_form_error = ""
+            return
+        try:
+            appointment_id = int(value.rsplit("#", 1)[1])
+        except (IndexError, ValueError):
+            self.finance_form_error = "Selecione um agendamento válido."
+            return
+        if not any(
+            appointment["id"] == appointment_id
+            for appointment in self.finance_appointment_options
+        ):
+            self.finance_form_error = "O agendamento selecionado não está mais disponível."
+            return
+        self.finance_form_appointment_id = appointment_id
+        self.finance_form_appointment_option = value
+        selected_appointment = next(
+            appointment
+            for appointment in self.finance_appointment_options
+            if appointment["id"] == appointment_id
+        )
+        self.finance_form_service_ids = []
+        self.finance_form_amount = selected_appointment["total_price"]
+        self.finance_form_confirming = False
+        self.finance_form_error = ""
+
+    @rx.event
+    def set_finance_form_service_option(self, value: str):
+        if self.finance_form_appointment_id:
+            self.finance_form_error = (
+                "Os serviços do agendamento vinculado não podem ser alterados."
+            )
+            return
+        if value == "Selecione um serviço...":
+            self.finance_form_service_option = value
+            return
+        try:
+            service_id = int(value.rsplit("#", 1)[1])
+        except (IndexError, ValueError):
+            self.finance_form_error = "Selecione um serviço cadastrado."
+            return
+        if service_id in self.finance_form_service_ids:
+            self.finance_form_error = "Esse serviço já foi adicionado."
+            return
+        if not any(service["id"] == service_id for service in self.finance_services):
+            self.finance_form_error = "O serviço selecionado não está mais disponível."
+            return
+        self.finance_form_service_ids.append(service_id)
+        self._refresh_finance_form_service_total()
+        self.finance_form_service_option = "Selecione um serviço..."
+        self.finance_form_error = ""
+
+    @rx.event
+    def remove_finance_form_service(self, service_id: int):
+        self.finance_form_service_ids = [
+            selected_id
+            for selected_id in self.finance_form_service_ids
+            if selected_id != service_id
+        ]
+        self._refresh_finance_form_service_total()
+        self.finance_form_error = ""
+
+    def _refresh_finance_form_service_total(self):
+        amount = sum(
+            (
+                Decimal(service["price"])
+                for service in self.finance_services
+                if service["id"] in self.finance_form_service_ids
+            ),
+            Decimal("0"),
+        )
+        self.finance_form_amount = (
+            f"{amount:.2f}" if self.finance_form_service_ids else ""
+        )
+        self.finance_form_confirming = False
 
     @rx.event
     def set_finance_form_title(self, value: str):
@@ -1088,6 +1559,25 @@ class AuthState(rx.State):
             self.finance_form_error = "O valor deve ser maior que zero."
             return
         try:
+            if amount != amount.quantize(Decimal("0.01")):
+                self.finance_form_error = (
+                    "O valor deve ter no máximo duas casas decimais."
+                )
+                return
+        except InvalidOperation:
+            self.finance_form_error = "Informe um valor válido."
+            return
+        if not is_edit and self.finance_form_service_ids and not self.finance_form_contact_id:
+            self.finance_form_error = (
+                "Selecione um cliente para associar os serviços."
+            )
+            return
+        if not is_edit and self.finance_form_appointment_id and not self.finance_form_contact_id:
+            self.finance_form_error = (
+                "Selecione o cliente antes de vincular um agendamento."
+            )
+            return
+        try:
             occurred_at = datetime.fromisoformat(occurred_at_value)
         except ValueError:
             self.finance_form_error = "Informe uma data e horário válidos."
@@ -1104,18 +1594,28 @@ class AuthState(rx.State):
             self.finance_form_error = ""
             return
 
+        linked_appointment_id = (
+            self.finance_form_appointment_id if not is_edit else 0
+        )
         self.finance_form_submitting = True
         self.finance_form_error = ""
         self.finance_form_success_message = ""
         yield
 
-        payload = {
+        payload: dict[str, Any] = {
             "type": transaction_type,
             "title": title,
             "detail": detail,
             "amount": str(amount),
             "occurred_at": occurred_at.isoformat(),
         }
+        if not is_edit and transaction_type == "income":
+            if self.finance_form_contact_id:
+                payload["contact_id"] = self.finance_form_contact_id
+            if self.finance_form_service_ids:
+                payload["service_ids"] = self.finance_form_service_ids
+            if self.finance_form_appointment_id:
+                payload["appointment_id"] = self.finance_form_appointment_id
         endpoint = (
             f"finance/transactions/{self.finance_form_transaction_id}"
             if is_edit
@@ -1128,13 +1628,40 @@ class AuthState(rx.State):
             error_context="serviço financeiro",
         )
         if response is None or response.status_code not in (200, 201):
-            self.finance_form_error = (
-                "Não foi possível salvar as alterações. Tente novamente."
-                if is_edit
-                else "Não foi possível registrar a movimentação. Tente novamente."
+            self.finance_form_error = _api_error_message(
+                response,
+                (
+                    "Não foi possível salvar as alterações. Tente novamente."
+                    if is_edit
+                    else "Não foi possível registrar a movimentação. Tente novamente."
+                ),
             )
             self.finance_form_submitting = False
             return
+
+        if not is_edit:
+            try:
+                result = response.json()
+                if isinstance(result, dict) and isinstance(result.get("data"), dict):
+                    result = result["data"]
+                if not isinstance(result, dict):
+                    raise ValueError("A confirmação da movimentação é inválida.")
+                appointment_id = int(result.get("appointment_id") or 0)
+                appointment_status = str(result.get("appointment_status") or "")
+                if appointment_id:
+                    if appointment_status not in APPOINTMENT_STATUS_LABELS:
+                        raise ValueError("O status confirmado do agendamento é inválido.")
+                    self._update_loaded_appointment_status(
+                        appointment_id,
+                        appointment_status,
+                    )
+            except (TypeError, ValueError) as error:
+                print(f"[finance] Invalid payment response: {error}")
+                if self.finance_form_appointment_id:
+                    self.appointment_error_message = (
+                        "O pagamento foi registrado, mas não foi possível confirmar "
+                        "o status retornado do agendamento."
+                    )
 
         self.finance_form_open = False
         self.finance_form_mode = "create"
@@ -1143,6 +1670,11 @@ class AuthState(rx.State):
         self.finance_form_detail = ""
         self.finance_form_amount = ""
         self.finance_form_occurred_at = ""
+        self.finance_form_contact_id = 0
+        self.finance_form_contact_option = "Selecione um cliente..."
+        self.finance_form_service_ids = []
+        self.finance_form_appointment_id = 0
+        self.finance_form_appointment_option = "Sem vínculo de agendamento"
         self.finance_form_confirming = False
         self.finance_form_success_message = (
             "Movimentação atualizada com sucesso."
@@ -1150,7 +1682,31 @@ class AuthState(rx.State):
             else "Movimentação registrada com sucesso."
         )
         self.finance_form_submitting = False
+        self.finance_transactions_page = 1
+        yield
         await self._load_finance_dashboard()
+        if linked_appointment_id:
+            await self._load_appointments()
+
+    def _update_loaded_appointment_status(self, appointment_id: int, status: str):
+        if status not in APPOINTMENT_STATUS_LABELS:
+            return
+        self.appointments = [
+            {
+                **appointment,
+                "status": status,
+                "status_display": APPOINTMENT_STATUS_LABELS[status],
+            }
+            if appointment["id"] == appointment_id
+            else appointment
+            for appointment in self.appointments
+        ]
+        if self.appointment_selected_detail.get("id") == appointment_id:
+            self.appointment_selected_detail = {
+                **self.appointment_selected_detail,
+                "status": status,
+                "status_display": APPOINTMENT_STATUS_LABELS[status],
+            }
 
     @rx.event
     def request_finance_cancellation(self, transaction_id: int):
@@ -1178,6 +1734,14 @@ class AuthState(rx.State):
                 "Informe o motivo do estorno (até 250 caracteres)."
             )
             return
+        linked_appointment_id = next(
+            (
+                int(transaction.get("appointment_id") or 0)
+                for transaction in self.finance_transactions
+                if transaction["id"] == transaction_id
+            ),
+            0,
+        )
         self.finance_cancel_submitting = True
         self.finance_cancel_error = ""
         yield
@@ -1189,11 +1753,35 @@ class AuthState(rx.State):
             error_context="serviço financeiro",
         )
         if response is None or response.status_code not in (200, 204):
-            self.finance_cancel_error = (
-                "Não foi possível estornar a movimentação. Tente novamente."
+            self.finance_cancel_error = _api_error_message(
+                response,
+                "Não foi possível estornar a movimentação. Tente novamente.",
             )
             self.finance_cancel_submitting = False
             return
+
+        if response.status_code == 200:
+            try:
+                result = response.json()
+                if isinstance(result, dict) and isinstance(result.get("data"), dict):
+                    result = result["data"]
+                if not isinstance(result, dict):
+                    raise ValueError("A confirmação do estorno é inválida.")
+                appointment_id = int(result.get("appointment_id") or 0)
+                appointment_status = str(result.get("appointment_status") or "")
+                if appointment_id:
+                    if appointment_status not in APPOINTMENT_STATUS_LABELS:
+                        raise ValueError("O status restaurado do agendamento é inválido.")
+                    self._update_loaded_appointment_status(
+                        appointment_id,
+                        appointment_status,
+                    )
+            except (TypeError, ValueError) as error:
+                print(f"[finance] Invalid cancellation response: {error}")
+                self.appointment_error_message = (
+                    "O estorno foi registrado, mas não foi possível confirmar "
+                    "o status retornado do agendamento."
+                )
 
         self.finance_cancel_transaction_id = 0
         self.finance_cancel_reason = ""
@@ -1202,6 +1790,8 @@ class AuthState(rx.State):
             "Movimentação estornada. O histórico foi preservado."
         )
         await self._load_finance_dashboard()
+        if linked_appointment_id:
+            await self._load_appointments()
 
     def _set_finance_error(self, message: str):
         self.finance_kpis_error = message
@@ -1240,18 +1830,31 @@ class AuthState(rx.State):
             self.finance_chart_active_index = index
 
     @rx.event
-    def toggle_finance_transactions(self):
-        self.finance_show_all_transactions = not self.finance_show_all_transactions
-
-    @rx.event
-    def toggle_finance_cancelled_transactions(self):
+    async def toggle_finance_cancelled_transactions(self):
         self.finance_show_cancelled_transactions = (
             not self.finance_show_cancelled_transactions
         )
+        self.finance_transactions_page = 1
+        if self.finance_api_available:
+            await self._load_finance_transactions()
+
+    @rx.event
+    async def previous_finance_transactions_page(self):
+        if self.finance_transactions_page > 1:
+            self.finance_transactions_page -= 1
+            if not self.finance_mock_mode:
+                await self._load_finance_transactions()
+
+    @rx.event
+    async def next_finance_transactions_page(self):
+        if self.finance_transactions_page < self.finance_transactions_page_count:
+            self.finance_transactions_page += 1
+            if not self.finance_mock_mode:
+                await self._load_finance_transactions()
 
     @rx.var
     def finance_filtered_transactions(self) -> list[dict[str, Any]]:
-        if self.finance_show_cancelled_transactions:
+        if self.finance_show_cancelled_transactions or not self.finance_mock_mode:
             return self.finance_transactions
         return [
             transaction
@@ -1260,17 +1863,89 @@ class AuthState(rx.State):
         ]
 
     @rx.var
-    def finance_has_cancelled_transactions(self) -> bool:
-        return any(
-            transaction.get("is_cancelled", False)
-            for transaction in self.finance_transactions
+    def finance_visible_transactions(self) -> list[dict[str, Any]]:
+        if not self.finance_mock_mode:
+            return self.finance_filtered_transactions
+        start = (self.finance_transactions_page - 1) * self.finance_transactions_page_size
+        return self.finance_filtered_transactions[
+            start : start + self.finance_transactions_page_size
+        ]
+
+    @rx.var
+    def finance_transactions_page_count(self) -> int:
+        total = (
+            len(self.finance_filtered_transactions)
+            if self.finance_mock_mode
+            else self.finance_transactions_total
+        )
+        return max(1, ceil(total / self.finance_transactions_page_size))
+
+    @rx.var
+    def finance_transactions_summary(self) -> str:
+        total = (
+            len(self.finance_filtered_transactions)
+            if self.finance_mock_mode
+            else self.finance_transactions_total
+        )
+        first = (
+            (self.finance_transactions_page - 1) * self.finance_transactions_page_size + 1
+            if total
+            else 0
+        )
+        last = min(
+            first + self.finance_transactions_page_size - 1,
+            total,
+        )
+        return (
+            f"Mostrando {first}–{last} de {total} registros · "
+            f"Página {self.finance_transactions_page} de "
+            f"{self.finance_transactions_page_count}"
         )
 
     @rx.var
-    def finance_visible_transactions(self) -> list[dict[str, Any]]:
-        if self.finance_show_all_transactions:
-            return self.finance_filtered_transactions
-        return self.finance_filtered_transactions[:3]
+    def finance_contact_options(self) -> list[str]:
+        options = ["Selecione um cliente..."]
+        options.extend(
+            f"{contact['name']} · {contact['phone']} · #{contact['id']}"
+            for contact in self.finance_contacts
+        )
+        return options
+
+    @rx.var
+    def finance_service_options(self) -> list[str]:
+        options = ["Selecione um serviço..."]
+        options.extend(
+            f"{service['name']} · {service['price_display']} · #{service['id']}"
+            for service in self.finance_services
+            if service["id"] not in self.finance_form_service_ids
+        )
+        return options
+
+    @rx.var
+    def finance_selected_services(self) -> list[dict[str, Any]]:
+        if self.finance_form_appointment_id:
+            appointment = next(
+                (
+                    item
+                    for item in self.finance_appointment_options
+                    if item["id"] == self.finance_form_appointment_id
+                ),
+                None,
+            )
+            if appointment:
+                return appointment["services"]
+        return [
+            service
+            for service in self.finance_services
+            if service["id"] in self.finance_form_service_ids
+        ]
+
+    @rx.var
+    def finance_appointment_options_labels(self) -> list[str]:
+        return [
+            "Sem vínculo de agendamento",
+            *[appointment["label"] for appointment in self.finance_appointment_options],
+        ]
 
     @rx.event
     async def route_root(self):
@@ -3205,6 +3880,8 @@ class AuthState(rx.State):
         if status not in APPOINTMENT_STATUS_LABELS:
             self.appointment_error_message = "Status de agendamento inválido."
             return
+        self.appointment_success_message = ""
+        self.appointment_error_message = ""
         response = await self._request(
             "PATCH",
             f"appointments/{appointment_id}/status",
@@ -3218,9 +3895,34 @@ class AuthState(rx.State):
                 else _api_error_message(response, "Não foi possível atualizar o atendimento.")
             )
             return
+        try:
+            saved_status = _appointment_status_from_response(
+                response.json(),
+                appointment_id,
+            )
+        except (TypeError, ValueError) as error:
+            print(f"[appointments] Invalid status response: {error}")
+            self.appointment_selected_detail = {}
+            await self._load_appointments()
+            if not self.appointment_error_message:
+                self.appointment_error_message = (
+                    "Não foi possível confirmar o status salvo. A agenda foi atualizada."
+                )
+            return
+        self._update_loaded_appointment_status(appointment_id, saved_status)
+        if saved_status != status:
+            self.appointment_success_message = ""
+            self.appointment_selected_detail = {}
+            await self._load_appointments()
+            if not self.appointment_error_message:
+                self.appointment_error_message = (
+                    "O status foi alterado por outra operação. A tela foi atualizada "
+                    "com o valor salvo."
+                )
+            return
         self.appointment_success_message = (
             "Atendimento cancelado."
-            if status == "cancelled"
+            if saved_status == "cancelled"
             else "Status do atendimento atualizado."
         )
         self.appointment_selected_detail = {}
@@ -5800,6 +6502,29 @@ def _appointment_table_row(appointment: Any) -> rx.Component:
                     (appointment["status"] == "pending")
                     | (appointment["status"] == "confirmed"),
                     rx.fragment(
+                        rx.cond(
+                            appointment["status"] == "pending",
+                            rx.button(
+                                rx.icon("check", size=15, aria_hidden="true"),
+                                "Confirmar",
+                                type="button",
+                                on_click=AuthState.set_appointment_status(
+                                    appointment["id"], "confirmed"
+                                ),
+                                aria_label="Confirmar agendamento",
+                                class_name="pc-service-action pc-service-edit",
+                            ),
+                            rx.button(
+                                rx.icon("check", size=15, aria_hidden="true"),
+                                "Concluir",
+                                type="button",
+                                on_click=AuthState.set_appointment_status(
+                                    appointment["id"], "completed"
+                                ),
+                                aria_label="Concluir atendimento",
+                                class_name="pc-service-action pc-service-edit",
+                            ),
+                        ),
                         rx.button(
                             rx.icon("pencil", size=15, aria_hidden="true"),
                             type="button",
@@ -6222,6 +6947,28 @@ def _appointment_detail_modal() -> rx.Component:
                         == "confirmed"
                     ),
                     rx.fragment(
+                        rx.cond(
+                            AuthState.appointment_selected_detail["status"]
+                            == "pending",
+                            rx.button(
+                                "Confirmar agendamento",
+                                type="button",
+                                on_click=AuthState.set_appointment_status(
+                                    AuthState.appointment_selected_detail["id"],
+                                    "confirmed",
+                                ),
+                                class_name="pc-button pc-button-primary",
+                            ),
+                            rx.button(
+                                "Concluir atendimento",
+                                type="button",
+                                on_click=AuthState.set_appointment_status(
+                                    AuthState.appointment_selected_detail["id"],
+                                    "completed",
+                                ),
+                                class_name="pc-button pc-button-primary",
+                            ),
+                        ),
                         rx.button(
                             "Editar",
                             type="button",

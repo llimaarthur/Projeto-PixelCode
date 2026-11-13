@@ -166,6 +166,56 @@ class FinanceServiceTests(unittest.TestCase):
         self.assertEqual(dashboard["summary"]["inflows"], 120)
         self.assertEqual(dashboard["cashflow"]["6m"][-1]["inflows"], 120)
 
+    def test_dashboard_preserves_transaction_owner_and_service_links(self):
+        now = datetime(2026, 11, 9, 17, 0, tzinfo=SAO_PAULO)
+        dashboard = finance_dashboard_from_transactions(
+            {
+                "transactions": [
+                    {
+                        "id": 31,
+                        "created_by": 7,
+                        "contact_id": 12,
+                        "contact_name_snapshot": "Ana Souza",
+                        "services_snapshot": [
+                            {"id": 4, "name": "Corte", "price": 65}
+                        ],
+                        "appointment_id": 28,
+                        "appointment_status_before_payment": "confirmed",
+                        "type": "income",
+                        "title": "Pagamento de serviço",
+                        "amount": 65,
+                        "occurred_at": "2026-11-09T16:20:00-03:00",
+                    }
+                ]
+            },
+            now,
+        )
+
+        transaction = dashboard["transactions"][0]
+        self.assertEqual(transaction["created_by"], 7)
+        self.assertEqual(transaction["contact_id"], 12)
+        self.assertEqual(transaction["appointment_id"], 28)
+        self.assertEqual(transaction["services_snapshot"][0]["name"], "Corte")
+        self.assertEqual(transaction["status"], "active")
+        self.assertIn("Cliente: Ana Souza", transaction["detail"])
+        self.assertIn("Serviços: Corte", transaction["detail"])
+        self.assertEqual(transaction["detail"].count("Cliente: Ana Souza"), 1)
+        self.assertEqual(transaction["detail"].count("Serviços: Corte"), 1)
+
+    def test_dashboard_rejects_invalid_service_snapshot(self):
+        with self.assertRaises(FinanceDataError):
+            finance_dashboard_from_transactions(
+                [
+                    {
+                        "type": "income",
+                        "title": "Pagamento",
+                        "amount": 65,
+                        "occurred_at": "2026-11-09T16:20:00-03:00",
+                        "services_snapshot": {"name": "Corte"},
+                    }
+                ]
+            )
+
     def test_dashboard_shows_historical_transactions_on_scaled_cashflow(self):
         now = datetime(2026, 11, 11, 0, 14, tzinfo=SAO_PAULO)
         dashboard = finance_dashboard_from_transactions(
@@ -226,8 +276,10 @@ class FinanceServiceTests(unittest.TestCase):
         self.assertEqual(dashboard["summary"]["outflows"], 0)
         self.assertEqual(dashboard["summary"]["current_balance"], 125)
         self.assertEqual(dashboard["transactions"][0]["id"], 8)
+        self.assertEqual(dashboard["transactions"][0]["status"], "active")
         self.assertFalse(dashboard["transactions"][0]["is_cancelled"])
         self.assertEqual(dashboard["transactions"][1]["id"], 7)
+        self.assertEqual(dashboard["transactions"][1]["status"], "cancelled")
         self.assertTrue(dashboard["transactions"][1]["is_cancelled"])
         self.assertIn("Estorno: Compra duplicada", dashboard["transactions"][1]["detail"])
 
