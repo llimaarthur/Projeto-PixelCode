@@ -1,3 +1,4 @@
+import asyncio
 import os
 import re
 import unicodedata
@@ -19,6 +20,12 @@ from frontend.finance_service import (
     normalize_finance_dashboard,
     prepare_cashflow_chart,
     should_use_finance_mock,
+)
+from frontend.overview_service import (
+    OVERVIEW_PERIODS,
+    overview_metrics,
+    summarize_contacts,
+    upcoming_appointments,
 )
 
 
@@ -497,6 +504,26 @@ def _profile_requires_password_change(profile: Any) -> bool:
     )
 
 
+def _contacts_page_from_response(payload: Any) -> tuple[list[Any], int]:
+    if isinstance(payload, dict) and isinstance(payload.get("data"), (dict, list)):
+        payload = payload["data"]
+    if isinstance(payload, list):
+        return payload, len(payload)
+    if isinstance(payload, dict) and isinstance(payload.get("items"), list):
+        try:
+            total_value = payload.get(
+                "total",
+                payload.get("itemsTotal", len(payload["items"])),
+            )
+            total = int(len(payload["items"]) if total_value is None else total_value)
+        except (TypeError, ValueError, OverflowError) as error:
+            raise ValueError("O total de clientes retornado é inválido.") from error
+        if total < 0:
+            raise ValueError("O total de clientes retornado é inválido.")
+        return payload["items"], total
+    raise ValueError("A resposta de clientes não contém uma lista.")
+
+
 class AuthState(rx.State):
     _auth_token: str = rx.LocalStorage("", name="pixelcode_auth_token", sync=True)
 
@@ -701,6 +728,27 @@ class AuthState(rx.State):
     finance_cancel_reason: str = ""
     finance_cancel_error: str = ""
     finance_cancel_submitting: bool = False
+    overview_period: str = "30d"
+    overview_period_error: str = ""
+    overview_finance_transactions: list[dict[str, Any]] = []
+    overview_financial_metrics: list[dict[str, Any]] = []
+    overview_financial_loading: bool = True
+    overview_financial_error: str = ""
+    overview_transactions_loading: bool = True
+    overview_transactions_error: str = ""
+    overview_client_metric: dict[str, Any] = {}
+    overview_clients_loading: bool = True
+    overview_clients_error: str = ""
+    overview_client_total: int = 0
+    overview_client_active_count: int = 0
+    overview_client_active_percentage: int = 0
+    overview_client_total_variation: str = "Sem comparação"
+    overview_client_total_trend: str = "neutral"
+    overview_first_contact_dates: list[str] = []
+    overview_appointments: list[dict[str, Any]] = []
+    overview_appointments_loading: bool = True
+    overview_appointments_error: str = ""
+    overview_recent_transactions: list[dict[str, Any]] = []
 
     async def _request(
         self,
@@ -781,6 +829,27 @@ class AuthState(rx.State):
         self.profile_password_success = ""
         self.profile_password_submitting = False
         self.profile_editor_open = False
+        self.overview_period = "30d"
+        self.overview_period_error = ""
+        self.overview_finance_transactions = []
+        self.overview_financial_metrics = []
+        self.overview_financial_loading = False
+        self.overview_financial_error = ""
+        self.overview_transactions_loading = False
+        self.overview_transactions_error = ""
+        self.overview_client_metric = {}
+        self.overview_clients_loading = False
+        self.overview_clients_error = ""
+        self.overview_client_total = 0
+        self.overview_client_active_count = 0
+        self.overview_client_active_percentage = 0
+        self.overview_client_total_variation = "Sem comparação"
+        self.overview_client_total_trend = "neutral"
+        self.overview_first_contact_dates = []
+        self.overview_appointments = []
+        self.overview_appointments_loading = False
+        self.overview_appointments_error = ""
+        self.overview_recent_transactions = []
 
     @rx.event
     def clear_menu_success_messages(self):
@@ -893,6 +962,263 @@ class AuthState(rx.State):
             return rx.redirect("/change-password")
 
     @rx.event
+    async def require_overview_access(self):
+        self.clear_menu_success_messages()
+        if not self._auth_token:
+            yield rx.redirect("/login")
+            return
+        profile = await self._load_identity()
+        if profile is None:
+            self._clear_session()
+            yield rx.redirect("/login")
+            return
+        if _profile_requires_password_change(profile):
+            yield rx.redirect("/change-password")
+            return
+
+        self.overview_financial_loading = True
+        self.overview_financial_error = ""
+        self.overview_transactions_loading = True
+        self.overview_transactions_error = ""
+        self.overview_clients_loading = True
+        self.overview_clients_error = ""
+        self.overview_appointments_loading = True
+        self.overview_appointments_error = ""
+        self.overview_period_error = ""
+        self.overview_recent_transactions = []
+        self.overview_finance_transactions = []
+        self.finance_kpis_loading = True
+        self.finance_chart_loading = True
+        self.finance_summary_loading = True
+        self.finance_transactions_loading = True
+        yield
+        await asyncio.gather(
+            self._load_finance_dashboard(load_transaction_page=False),
+            self._load_overview_contacts(),
+            self._load_overview_appointments(),
+        )
+        self.overview_financial_loading = False
+        self.overview_transactions_loading = False
+        self.overview_transactions_error = self.overview_financial_error
+        if not self.overview_transactions_error:
+            self.overview_recent_transactions = self.overview_finance_transactions[:3]
+        self._refresh_overview_metrics()
+
+    async def _load_overview_contacts(self):
+        self.overview_clients_loading = True
+        self.overview_clients_error = ""
+        contacts: list[dict[str, Any]] = []
+        page_size = 50
+
+        async def fetch_page(
+            page: int,
+        ) -> tuple[tuple[list[Any], int] | None, str]:
+            response = await self._request(
+                "GET",
+                "contacts",
+                error_context="clientes da visão geral",
+                query_params={"page": page, "page_size": page_size},
+            )
+            if response is None:
+                return None, "Não foi possível carregar os dados de clientes."
+            if response.status_code != 200:
+                return None, _api_error_message(
+                    response, "Não foi possível carregar os dados de clientes."
+                )
+            try:
+                return _contacts_page_from_response(response.json()), ""
+            except (TypeError, ValueError, OverflowError) as error:
+                print(f"[overview] Invalid contacts page {page}: {error}")
+                return (
+                    None,
+                    "Os dados de clientes estão temporariamente indisponíveis.",
+                )
+
+        def append_contacts(items: list[Any]):
+            for item in items:
+                if not isinstance(item, dict):
+                    raise ValueError("Um cliente retornado possui formato inválido.")
+                first_contact_at = _contact_date_iso_value(
+                    item.get("first_contact_at")
+                )
+                if not first_contact_at:
+                    raise ValueError(
+                        "A data do primeiro contato de um cliente é inválida."
+                    )
+                contacts.append(
+                    {
+                        "id": int(item["id"]),
+                        "status": str(item.get("status", "")),
+                        "first_contact_at": first_contact_at,
+                    }
+                )
+
+        first_page, page_error = await fetch_page(1)
+        if first_page is None:
+            self.overview_clients_error = page_error
+            self.overview_clients_loading = False
+            return
+        first_items, reported_total = first_page
+        try:
+            append_contacts(first_items)
+            if len(contacts) > reported_total:
+                raise ValueError("A paginação excedeu o total de clientes.")
+            if not first_items and reported_total:
+                raise ValueError("A paginação de clientes terminou antes do total.")
+        except (KeyError, TypeError, ValueError, OverflowError) as error:
+            print(f"[overview] Invalid contacts response: {error}")
+            self.overview_clients_error = (
+                "Os dados de clientes estão temporariamente indisponíveis."
+            )
+            self.overview_clients_loading = False
+            return
+
+        page_count = (reported_total + page_size - 1) // page_size
+        for batch_start in range(2, page_count + 1, 4):
+            pages = range(batch_start, min(batch_start + 4, page_count + 1))
+            results = await asyncio.gather(
+                *(fetch_page(page) for page in pages)
+            )
+            for page, (page_result, page_error) in zip(pages, results):
+                if page_result is None:
+                    self.overview_clients_error = page_error
+                    self.overview_clients_loading = False
+                    return
+                page_items, page_total = page_result
+                try:
+                    if page_total != reported_total:
+                        raise ValueError(
+                            "O total de clientes mudou durante a consulta."
+                        )
+                    if not page_items and len(contacts) < reported_total:
+                        raise ValueError(
+                            "A paginação de clientes terminou antes do total."
+                        )
+                    append_contacts(page_items)
+                    if len(contacts) > reported_total:
+                        raise ValueError("A paginação excedeu o total de clientes.")
+                except (KeyError, TypeError, ValueError, OverflowError) as error:
+                    print(f"[overview] Invalid contacts page {page}: {error}")
+                    self.overview_clients_error = (
+                        "Os dados de clientes estão temporariamente indisponíveis."
+                    )
+                    self.overview_clients_loading = False
+                    return
+
+        if len(contacts) != reported_total:
+            print("[overview] Contacts pagination did not match the reported total.")
+            self.overview_clients_error = (
+                "Os dados de clientes estão temporariamente indisponíveis."
+            )
+            self.overview_clients_loading = False
+            return
+
+        try:
+            summary = summarize_contacts(contacts, reported_total)
+        except ValueError as error:
+            print(f"[overview] Invalid contacts summary: {error}")
+            self.overview_clients_error = (
+                "Os dados de clientes estão temporariamente indisponíveis."
+            )
+            self.overview_clients_loading = False
+            return
+
+        self.overview_client_total = summary["total"]
+        self.overview_client_active_count = summary["active_count"]
+        self.overview_client_active_percentage = summary["active_percentage"]
+        self.overview_client_total_variation = summary["variation"]
+        self.overview_client_total_trend = summary["trend"]
+        self.overview_first_contact_dates = summary["first_contact_dates"]
+        self.overview_clients_loading = False
+
+
+    async def _load_overview_appointments(self):
+        self.overview_appointments_loading = True
+        self.overview_appointments_error = ""
+        now = datetime.now(BARBERSHOP_TIMEZONE)
+        day_start = datetime.combine(
+            now.date(),
+            time.min,
+            tzinfo=BARBERSHOP_TIMEZONE,
+        )
+        day_end = day_start + timedelta(days=30)
+        query_params: dict[str, Any] = {
+            "day_start": int(day_start.timestamp() * 1000),
+            "day_end": int(day_end.timestamp() * 1000),
+        }
+        if self.role != "admin":
+            query_params["professional_id"] = self.user_id
+
+        response = await self._request(
+            "GET",
+            "appointments",
+            error_context="agenda da visão geral",
+            query_params=query_params,
+        )
+        if response is None:
+            self.overview_appointments_error = (
+                "Não foi possível carregar os próximos atendimentos."
+            )
+            self.overview_appointments_loading = False
+            return
+        if response.status_code != 200:
+            self.overview_appointments_error = _api_error_message(
+                response,
+                "Não foi possível carregar os próximos atendimentos.",
+            )
+            self.overview_appointments_loading = False
+            return
+        try:
+            result = response.json()
+            if isinstance(result, dict) and isinstance(result.get("data"), list):
+                result = result["data"]
+            self.overview_appointments = upcoming_appointments(
+                result,
+                now,
+                _parse_appointment_datetime,
+            )
+        except (KeyError, TypeError, ValueError) as error:
+            print(f"[overview] Invalid appointments response: {error}")
+            self.overview_appointments_error = (
+                "Os próximos atendimentos estão temporariamente indisponíveis."
+            )
+        self.overview_appointments_loading = False
+
+    def _refresh_overview_metrics(self):
+        try:
+            metrics = overview_metrics(
+                self.overview_finance_transactions,
+                self.overview_first_contact_dates,
+                self.overview_period,
+            )
+        except FinanceDataError as error:
+            print(f"[overview] Invalid finance transactions: {error}")
+            self.overview_financial_error = (
+                "Os indicadores financeiros estão temporariamente indisponíveis."
+            )
+            self.overview_transactions_error = self.overview_financial_error
+            self.overview_financial_metrics = []
+            self.overview_recent_transactions = []
+            client_metrics = overview_metrics(
+                [],
+                self.overview_first_contact_dates,
+                self.overview_period,
+            )
+            self.overview_client_metric = client_metrics["clients"]
+            return
+        self.overview_financial_metrics = metrics["financial"]
+        self.overview_client_metric = metrics["clients"]
+
+    @rx.event
+    def set_overview_period(self, period: str):
+        if period not in OVERVIEW_PERIODS:
+            self.overview_period_error = "Selecione um período válido."
+            return
+        self.overview_period = period
+        self.overview_period_error = ""
+        self._refresh_overview_metrics()
+
+    @rx.event
     async def require_finance_access(self):
         self.clear_menu_success_messages()
         if not self._auth_token:
@@ -924,7 +1250,7 @@ class AuthState(rx.State):
         yield
         await self._load_finance_dashboard()
 
-    async def _load_finance_dashboard(self):
+    async def _load_finance_dashboard(self, load_transaction_page: bool = True):
         if not self.finance_dashboard_loaded:
             self.finance_kpis_loading = True
             self.finance_chart_loading = True
@@ -992,6 +1318,7 @@ class AuthState(rx.State):
         self.finance_summary = dashboard["summary"]
         self.finance_summary_empty = not bool(dashboard["summary"])
         self.finance_transactions = dashboard["transactions"]
+        self.overview_finance_transactions = dashboard["transactions"]
         self._apply_finance_transaction_permissions(self.finance_transactions)
         self.finance_dashboard_loaded = True
         self.finance_transactions_total = len(dashboard["transactions"])
@@ -1007,11 +1334,12 @@ class AuthState(rx.State):
         self.finance_chart_error = errors.get("cashflow", "")
         self.finance_summary_error = errors.get("summary", "")
         self.finance_transactions_error = errors.get("transactions", "")
+        self.overview_financial_error = errors.get("transactions", "")
         self.finance_kpis_loading = False
         self.finance_chart_loading = False
         self.finance_summary_loading = False
         self.finance_transactions_loading = False
-        if not mock_enabled:
+        if not mock_enabled and load_transaction_page:
             await self._load_finance_transactions()
 
     async def _load_finance_transactions(self):
@@ -1798,6 +2126,7 @@ class AuthState(rx.State):
         self.finance_chart_error = message
         self.finance_summary_error = message
         self.finance_transactions_error = message
+        self.overview_financial_error = message
         self.finance_kpis_loading = False
         self.finance_chart_loading = False
         self.finance_summary_loading = False
@@ -5102,47 +5431,9 @@ def _app_shell(content: rx.Component, active_route: str) -> rx.Component:
 
 
 def app_page() -> rx.Component:
-    content = rx.vstack(
-        rx.text("ESPAÇO DE TRABALHO", class_name="pc-eyebrow"),
-        rx.heading("Bem-vindo(a), ", AuthState.display_name, class_name="pc-page-title"),
-        rx.text(
-            "Organize a rotina da sua barbearia em um só lugar.",
-            class_name="pc-page-description",
-        ),
-        rx.el.section(
-            rx.vstack(
-                rx.box(class_name="pc-panel-accent", aria_hidden="true"),
-                rx.text("SUA OPERAÇÃO, COM MAIS CLAREZA", class_name="pc-eyebrow"),
-                rx.heading(
-                    "Tudo pronto para começar",
-                    class_name="pc-panel-title",
-                ),
-                rx.text(
-                    "O acesso da equipe está configurado. As próximas áreas de gestão serão adicionadas em etapas próprias.",
-                    class_name="pc-panel-description",
-                ),
-                rx.cond(
-                    AuthState.role == "admin",
-                    rx.link(
-                        "Cadastrar profissional",
-                        href="/team/new",
-                        tab_index=0,
-                        class_name="pc-button pc-button-primary pc-action-link",
-                    ),
-                    rx.fragment(),
-                ),
-                align="start",
-                spacing="4",
-                width="100%",
-            ),
-            class_name="pc-welcome-panel",
-        ),
-        width="100%",
-        align="stretch",
-        spacing="5",
-        class_name="pc-dashboard-content",
-    )
-    return _app_shell(content, "/app")
+    from frontend.overview_page import overview_page
+
+    return overview_page()
 
 
 def _professional_row(professional: Any) -> rx.Component:
@@ -8298,7 +8589,7 @@ def register_pages(app: rx.App):
         app_page,
         route="/app",
         title="Barbearia | Lotus Barber",
-        on_load=AuthState.require_session,
+        on_load=AuthState.require_overview_access,
     )
     app.add_page(
         create_professional_page,

@@ -84,6 +84,28 @@ def percentage_change(current: Any, previous: Any) -> Decimal | None:
     ).quantize(Decimal("1"), rounding=ROUND_HALF_UP)
 
 
+def finance_total(
+    transactions: list[dict[str, Any]],
+    start: date,
+    end: date,
+    kind: str,
+) -> Decimal:
+    if kind not in {"income", "expense"}:
+        raise FinanceDataError("O tipo de movimentação solicitado é inválido.")
+    return sum(
+        (
+            _decimal(item.get("amount"), "movimentação")
+            for item in transactions
+            if item.get("status", "active") == "active"
+            and item.get("type") == kind
+            and start
+            <= _finance_datetime(item.get("occurred_at"), "movimentação").date()
+            < end
+        ),
+        Decimal("0"),
+    )
+
+
 def finance_dashboard_from_transactions(
     payload: Any, now: datetime | None = None
 ) -> dict[str, Any]:
@@ -185,15 +207,7 @@ def finance_dashboard_from_transactions(
         end: date,
         kind: str = "income",
     ) -> Decimal:
-        return sum(
-            (
-                _decimal(item["amount"], "movimentação")
-                for item in active_transactions
-                if item["type"] == kind
-                and start <= datetime.fromisoformat(item["occurred_at"]).date() < end
-            ),
-            Decimal("0"),
-        )
+        return finance_total(active_transactions, start, end, kind)
 
     yesterday_start = today - timedelta(days=1)
     week_start = today - timedelta(days=today.weekday())
@@ -503,18 +517,7 @@ def _normalize_finance_dashboard_complete(
         )
         values = normalized_kpis[-1]["sparkline"]
         if values:
-            low, high = min(values), max(values)
-            span = max(high - low, 1)
-            coordinates = [
-                (round(index * 100 / max(len(values) - 1, 1), 1),
-                 round(42 - (value - low) / span * 34, 1))
-                for index, value in enumerate(values)
-            ]
-            path = _smooth_path(coordinates)
-            normalized_kpis[-1]["sparkline_path"] = path
-            normalized_kpis[-1]["sparkline_area"] = (
-                f"{path} L 100 48 L 0 48 Z"
-            )
+            normalized_kpis[-1].update(prepare_sparkline(values))
 
     cashflow = _require_object(payload.get("cashflow"), "fluxo de caixa")
     normalized_cashflow: dict[str, list[dict[str, Any]]] = {}
@@ -714,6 +717,26 @@ def _smooth_path(points: list[tuple[float, float]]) -> str:
             f" {current_x:.1f} {current_y:.1f}"
         )
     return path
+
+
+def prepare_sparkline(values: list[Any]) -> dict[str, str]:
+    if not values:
+        return {"sparkline_path": "", "sparkline_area": ""}
+    numeric_values = [float(_decimal(value, "sparkline")) for value in values]
+    low, high = min(numeric_values), max(numeric_values)
+    span = max(high - low, 1)
+    coordinates = [
+        (
+            round(index * 100 / max(len(numeric_values) - 1, 1), 1),
+            round(42 - (value - low) / span * 34, 1),
+        )
+        for index, value in enumerate(numeric_values)
+    ]
+    path = _smooth_path(coordinates)
+    return {
+        "sparkline_path": path,
+        "sparkline_area": f"{path} L 100 48 L 0 48 Z",
+    }
 
 
 def prepare_cashflow_chart(
