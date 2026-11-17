@@ -18,7 +18,7 @@ function "Quick Start/enforce_role" {
     db.get user {
       field_name = "id"
       field_value = $input.user_id
-      output = ["id", "role", "status", "must_change_password"]
+      output = ["id", "role", "status", "must_change_password", "barbershop_id"]
     } as $user
 
     precondition ($user != null) {
@@ -35,6 +35,10 @@ function "Quick Start/enforce_role" {
       error_type = "accessdenied"
       error = "Password change is required before using protected operations."
     }
+
+    function.run "Quick Start/resolve_user_barbershop" {
+      input = {user_id: $input.user_id}
+    } as $barbershop_scope
 
     // Extract the user's role from the retrieved user data.
     var $user_role {
@@ -68,7 +72,11 @@ function "Quick Start/enforce_role" {
     }
   }
 
-  response = null
+  response = {
+    barbershop_id: $barbershop_scope.barbershop_id
+    include_legacy_rows: $barbershop_scope.include_legacy_rows
+    role: $user.role
+  }
   tags = ["xano:quick-start"]
   guid = "5TI61jNQBwQzHtbbaZVzv1dFMoQ"
 }

@@ -24,6 +24,10 @@ query "finance/appointment-options" verb=GET {
     db.query appointment {
       where = (
         ($db.appointment.status == "pending" || $db.appointment.status == "confirmed")
+        && (
+          $db.appointment.barbershop_id == $access_check.barbershop_id
+          || ($access_check.include_legacy_rows == true && $db.appointment.barbershop_id == null)
+        )
         && ($input.contact_id == null || $db.appointment.contact_id == $input.contact_id)
         && ($actor.role == "admin" || $db.appointment.professional_id == $auth.id)
       )

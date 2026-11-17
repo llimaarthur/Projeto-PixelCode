@@ -45,7 +45,13 @@ query "auth/professionals" verb=POST {
     }
 
     db.query user {
-      where = $db.user.cpf == $normalized_cpf
+      where = (
+        (
+          $db.user.barbershop_id == $role_check.barbershop_id
+          || ($role_check.include_legacy_rows == true && $db.user.barbershop_id == null)
+        )
+        && $db.user.cpf == $normalized_cpf
+      )
       return = {type: "single"}
     } as $existing_cpf
 
@@ -55,7 +61,13 @@ query "auth/professionals" verb=POST {
     }
 
     db.query contact {
-      where = $db.contact.cpf_normalized == $normalized_cpf
+      where = (
+        (
+          $db.contact.barbershop_id == $role_check.barbershop_id
+          || ($role_check.include_legacy_rows == true && $db.contact.barbershop_id == null)
+        )
+        && $db.contact.cpf_normalized == $normalized_cpf
+      )
       return = {type: "list"}
     } as $existing_contact_cpf
 
@@ -67,6 +79,7 @@ query "auth/professionals" verb=POST {
     db.add user {
       data = {
         created_at            : "now"
+        barbershop_id         : $role_check.barbershop_id
         name                  : $input.name
         email                 : $input.email
         phone                 : $normalized_phone

@@ -7,8 +7,18 @@ query "services" verb=GET {
   }
 
   stack {
+    function.run "Quick Start/enforce_role" {
+      input = {user_id: $auth.id, required_role: "professional"}
+    } as $role_check
+
     db.query service {
-      where = $db.service.status == "active"
+      where = (
+        (
+          $db.service.barbershop_id == $role_check.barbershop_id
+          || ($role_check.include_legacy_rows == true && $db.service.barbershop_id == null)
+        )
+        && $db.service.status == "active"
+      )
       return = {type: "list"}
     } as $services
   }

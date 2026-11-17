@@ -18,7 +18,7 @@ query "appointments" verb=GET {
     db.get user {
       field_name = "id"
       field_value = $auth.id
-      output = ["id", "role", "status", "must_change_password"]
+      output = ["id", "role", "status", "must_change_password", "barbershop_id"]
     } as $actor
 
     precondition ($actor != null && ($actor.status == "active" || $actor.status == "enabled")) {
@@ -62,6 +62,10 @@ query "appointments" verb=GET {
       where = (
         $db.appointment.start_at < $input.day_end
         && $db.appointment.end_at > $input.day_start
+        && (
+          $db.appointment.barbershop_id == $scope_check.barbershop_id
+          || ($scope_check.include_legacy_rows == true && $db.appointment.barbershop_id == null)
+        )
         && ($target_professional_id == 0 || $db.appointment.professional_id == $target_professional_id)
       )
       sort = {appointment.start_at: "asc", appointment.id: "asc"}

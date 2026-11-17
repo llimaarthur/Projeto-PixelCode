@@ -5,6 +5,9 @@ table schedule_block {
     int id
     timestamp created_at?=now
     timestamp updated_at?=now
+    int barbershop_id? {
+      table = "barbershop"
+    }
     int professional_id? {
       table = "user"
     }
@@ -18,6 +21,7 @@ table schedule_block {
 
   index = [
     {type: "primary", field: [{name: "id"}]}
+    {type: "btree", field: [{name: "barbershop_id", op: "asc"}, {name: "start_at", op: "asc"}]}
     {type: "btree", field: [{name: "professional_id", op: "asc"}, {name: "start_at", op: "asc"}]}
     {type: "btree", field: [{name: "status", op: "asc"}]}
   ]

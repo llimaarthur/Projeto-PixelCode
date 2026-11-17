@@ -35,6 +35,17 @@ query "appointments/{appointment_id}" verb=PATCH {
       }
     } as $existing_scope_check
 
+    precondition (
+      $existing_appointment.barbershop_id == $existing_scope_check.barbershop_id
+      || (
+        $existing_scope_check.include_legacy_rows == true
+        && $existing_appointment.barbershop_id == null
+      )
+    ) {
+      error_type = "inputerror"
+      error = "Agendamento não encontrado."
+    }
+
     function.run "Quick Start/authorize_professional_scope" {
       input = {
         actor_id: $auth.id
@@ -54,6 +65,8 @@ query "appointments/{appointment_id}" verb=PATCH {
         service_ids: $input.service_ids
         start_at: $input.start_at
         exclude_appointment_id: $input.appointment_id
+        barbershop_id: $existing_scope_check.barbershop_id
+        include_legacy_rows: $existing_scope_check.include_legacy_rows
       }
     } as $prepared
 

@@ -10,7 +10,7 @@ query "appointments/professionals" verb=GET {
     db.get user {
       field_name = "id"
       field_value = $auth.id
-      output = ["id", "name", "role", "status", "must_change_password"]
+      output = ["id", "name", "role", "status", "must_change_password", "barbershop_id"]
     } as $actor
 
     precondition ($actor != null && ($actor.status == "active" || $actor.status == "enabled")) {
@@ -23,12 +23,23 @@ query "appointments/professionals" verb=GET {
       error = "É necessário trocar a senha antes de acessar a agenda."
     }
 
+    function.run "Quick Start/authorize_professional_scope" {
+      input = {
+        actor_id: $auth.id
+        target_professional_id: 0
+      }
+    } as $scope_check
+
     conditional {
       if ($actor.role == "admin") {
         db.query user {
           where = (
               ($db.user.role == "professional" || $db.user.role == "admin")
                 && ($db.user.status == "active" || $db.user.status == "enabled")
+                && (
+                  $db.user.barbershop_id == $scope_check.barbershop_id
+                  || ($scope_check.include_legacy_rows == true && $db.user.barbershop_id == null)
+                )
           )
           sort = {user.name: "asc"}
           output = ["id", "name"]

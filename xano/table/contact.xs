@@ -5,6 +5,9 @@ table contact {
     int id
     timestamp created_at?=now
     timestamp updated_at?=now
+    int barbershop_id? {
+      table = "barbershop"
+    }
     text name filters=trim
     text phone filters=trim
     text phone_normalized filters=trim
@@ -24,6 +27,7 @@ table contact {
 
   index = [
     {type: "primary", field: [{name: "id"}]}
+    {type: "btree", field: [{name: "barbershop_id", op: "asc"}]}
     {type: "btree", field: [{name: "phone_normalized", op: "asc"}]}
     {type: "btree", field: [{name: "cpf_normalized", op: "asc"}]}
     {type: "btree", field: [{name: "status", op: "asc"}]}

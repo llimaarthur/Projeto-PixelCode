@@ -5,6 +5,8 @@ function "Quick Start/prepare_appointment" {
     int professional_id
     json service_ids
     timestamp start_at
+    int barbershop_id
+    bool include_legacy_rows?=false
     int exclude_appointment_id?
   }
 
@@ -12,7 +14,7 @@ function "Quick Start/prepare_appointment" {
     db.get contact {
       field_name = "id"
       field_value = $input.contact_id
-      output = ["id", "name", "phone", "status"]
+      output = ["id", "name", "phone", "status", "barbershop_id"]
     } as $contact
 
     precondition ($contact != null) {
@@ -28,7 +30,7 @@ function "Quick Start/prepare_appointment" {
     db.get user {
       field_name = "id"
       field_value = $input.professional_id
-      output = ["id", "name", "status", "role"]
+      output = ["id", "name", "status", "role", "barbershop_id"]
     } as $professional
 
     precondition ($professional != null) {
@@ -44,6 +46,20 @@ function "Quick Start/prepare_appointment" {
     precondition ($professional.role == "professional" || $professional.role == "admin") {
       error_type = "inputerror"
       error = "Selecione um profissional ativo."
+    }
+
+    precondition (
+      (
+        $contact.barbershop_id == $input.barbershop_id
+        || ($input.include_legacy_rows == true && $contact.barbershop_id == null)
+      )
+      && (
+        $professional.barbershop_id == $input.barbershop_id
+        || ($input.include_legacy_rows == true && $professional.barbershop_id == null)
+      )
+    ) {
+      error_type = "inputerror"
+      error = "O cliente e o profissional devem pertencer à mesma barbearia."
     }
 
     precondition ($input.service_ids != null && ($input.service_ids|count) > 0) {
@@ -83,7 +99,7 @@ function "Quick Start/prepare_appointment" {
         db.get service {
           field_name = "id"
           field_value = $serviceId
-          output = ["id", "name", "price", "duration_minutes", "status"]
+          output = ["id", "name", "price", "duration_minutes", "status", "barbershop_id"]
         } as $service
 
         precondition ($service != null) {
@@ -94,6 +110,14 @@ function "Quick Start/prepare_appointment" {
         precondition ($service.status == "active") {
           error_type = "inputerror"
           error = "Um ou mais serviços não estão ativos ou não existem."
+        }
+
+        precondition (
+          $service.barbershop_id == $input.barbershop_id
+          || ($input.include_legacy_rows == true && $service.barbershop_id == null)
+        ) {
+          error_type = "inputerror"
+          error = "Todos os serviços devem pertencer à mesma barbearia."
         }
 
         array.push $service_snapshots {
@@ -136,6 +160,10 @@ function "Quick Start/prepare_appointment" {
     db.query appointment {
       where = (
         $db.appointment.professional_id == $input.professional_id
+        && (
+          $db.appointment.barbershop_id == $input.barbershop_id
+          || ($input.include_legacy_rows == true && $db.appointment.barbershop_id == null)
+        )
         && $db.appointment.status != "cancelled"
         && $db.appointment.start_at < $end_at
         && $db.appointment.end_at > $input.start_at
@@ -152,6 +180,10 @@ function "Quick Start/prepare_appointment" {
     db.query schedule_block {
       where = (
         $db.schedule_block.status == "active"
+        && (
+          $db.schedule_block.barbershop_id == $input.barbershop_id
+          || ($input.include_legacy_rows == true && $db.schedule_block.barbershop_id == null)
+        )
         && (
           $db.schedule_block.professional_id == null
           || $db.schedule_block.professional_id == $input.professional_id

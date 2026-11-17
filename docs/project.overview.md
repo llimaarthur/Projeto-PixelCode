@@ -2,7 +2,7 @@
 
 ## 1. Visão geral
 
-PixelCode é um sistema interno de gestão para barbearias, pensado para ser usado principalmente pelo barbeiro e por sua equipe. A plataforma centraliza a agenda, os contatos, os serviços, os agendamentos e os históricos financeiros, mas o cliente não acessa a aplicação diretamente.
+PixelCode é um sistema de gestão para barbearias, pensado para ser usado principalmente pelo proprietário, barbeiros e equipe. Cada barbearia possui sua própria equipe, agenda, contatos, catálogo de serviços e histórico financeiro, isolados das demais organizações. O cliente não acessa a aplicação diretamente.
 
 A interação com o cliente continua acontecendo fora do sistema, principalmente pelo WhatsApp, telefone ou indicação. O barbeiro usa a ferramenta para registrar o contato, organizar o atendimento e controlar o fluxo do negócio sem depender de um portal do cliente.
 
@@ -25,6 +25,8 @@ A proposta do PixelCode é resolver isso com uma ferramenta comercial simples, o
 ## 3. Objetivo do sistema
 
 - organizar a agenda da barbearia;
+- permitir que uma barbearia e sua conta proprietária sejam cadastradas;
+- manter os dados operacionais isolados por barbearia;
 - manter cadastro de contatos e clientes em uma base centralizada;
 - registrar serviços, horários e status de agendamento;
 - facilitar a gestão do barbeiro e da equipe;
@@ -137,6 +139,10 @@ A tecnologia serve como apoio ao trabalho do barbeiro, não como ferramenta aut�
 ## 10. Requisitos de segurança e integridade
 
 - autenticação e autorização apenas para usuários internos da barbearia;
+- cada usuário interno pertence a uma única barbearia e não acessa dados de
+  outras organizações;
+- o tenant é identificado pela conta autenticada e validado no backend, nunca
+  escolhido pelo frontend;
 - controle de acesso para barbeiros e equipe;
 - proteção de dados de clientes e finanças;
 - validação das regras de negócio no backend;

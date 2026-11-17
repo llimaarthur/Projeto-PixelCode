@@ -24,6 +24,14 @@ query "services/{service_id}/status" verb=PATCH {
       error = "Serviço não encontrado."
     }
 
+    precondition (
+      $existing_service.barbershop_id == $role_check.barbershop_id
+      || ($role_check.include_legacy_rows == true && $existing_service.barbershop_id == null)
+    ) {
+      error_type = "inputerror"
+      error = "Serviço não encontrado."
+    }
+
     db.edit service {
       field_name = "id"
       field_value = $input.service_id

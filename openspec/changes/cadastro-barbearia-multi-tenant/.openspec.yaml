@@ -1,0 +1,4 @@
+schema: spec-driven
+created: 2026-11-13
+goal: Permitir o cadastro público de barbearias e garantir isolamento
+  multi-tenant para seus usuários e dados operacionais.

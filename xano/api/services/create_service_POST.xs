@@ -33,6 +33,7 @@ query "services" verb=POST {
       data = {
         created_at      : "now"
         updated_at      : "now"
+        barbershop_id   : $role_check.barbershop_id
         name            : $input.name
         description     : $input.description
         price           : $input.price

@@ -11,13 +11,17 @@ query "auth/me" verb=GET {
     db.get user {
       field_name = "id"
       field_value = $auth.id
-      output = ["id", "created_at", "name", "email", "phone", "cpf",       "profile_photo_url", "profile_photo_public_id", "role", "status", "must_change_password"]
+      output = ["id", "created_at", "name", "email", "phone", "cpf", "barbershop_id", "profile_photo_url", "profile_photo_public_id", "role", "status", "must_change_password"]
     } as $user
 
     precondition ($user.status == "active" || $user.status == "enabled") {
       error_type = "accessdenied"
       error = "User account is inactive."
     }
+
+    function.run "Quick Start/resolve_user_barbershop" {
+      input = {user_id: $user.id}
+    } as $barbershop_scope
 
     // Create an event log for get user record
     function.run "Quick Start/log_event" {
@@ -36,6 +40,8 @@ query "auth/me" verb=GET {
     email                : $user.email
     phone                : $user.phone
     cpf                  : $user.cpf
+    barbershop_id        : $barbershop_scope.barbershop_id
+    barbershop_name      : $barbershop_scope.barbershop_name
     profile_photo_url    : $user.profile_photo_url
     profile_photo_public_id: $user.profile_photo_public_id
     role                 : $user.role

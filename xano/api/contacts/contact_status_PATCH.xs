@@ -24,6 +24,14 @@ query "contacts/{contact_id}/status" verb=PATCH {
       error = "Contato não encontrado."
     }
 
+    precondition (
+      $existing_contact.barbershop_id == $role_check.barbershop_id
+      || ($role_check.include_legacy_rows == true && $existing_contact.barbershop_id == null)
+    ) {
+      error_type = "inputerror"
+      error = "Contato não encontrado."
+    }
+
     db.edit contact {
       field_name = "id"
       field_value = $input.contact_id

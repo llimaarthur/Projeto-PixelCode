@@ -29,6 +29,14 @@ query "appointments/{appointment_id}/status" verb=PATCH {
     } as $scope_check
 
     precondition (
+      $appointment.barbershop_id == $scope_check.barbershop_id
+      || ($scope_check.include_legacy_rows == true && $appointment.barbershop_id == null)
+    ) {
+      error_type = "inputerror"
+      error = "Agendamento não encontrado."
+    }
+
+    precondition (
       $input.status == $appointment.status
       || (
         $appointment.status == "pending"

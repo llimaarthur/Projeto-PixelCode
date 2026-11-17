@@ -5,6 +5,9 @@ table appointment {
     int id
     timestamp created_at?=now
     timestamp updated_at?=now
+    int barbershop_id? {
+      table = "barbershop"
+    }
     int contact_id {
       table = "contact"
     }
@@ -27,6 +30,7 @@ table appointment {
 
   index = [
     {type: "primary", field: [{name: "id"}]}
+    {type: "btree", field: [{name: "barbershop_id", op: "asc"}, {name: "start_at", op: "asc"}]}
     {type: "btree", field: [{name: "professional_id", op: "asc"}, {name: "start_at", op: "asc"}]}
     {type: "btree", field: [{name: "contact_id", op: "asc"}]}
     {type: "btree", field: [{name: "status", op: "asc"}]}

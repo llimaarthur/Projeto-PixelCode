@@ -62,10 +62,18 @@ query "finance/transactions" verb=POST {
         db.get contact {
           field_name = "id"
           field_value = $input.contact_id
-          output = ["id", "name", "status"]
+          output = ["id", "name", "status", "barbershop_id"]
         } as $contact
 
         precondition ($contact != null && $contact.status == "active") {
+          error_type = "inputerror"
+          error = "Selecione um cliente ativo."
+        }
+
+        precondition (
+          $contact.barbershop_id == $access_check.barbershop_id
+          || ($access_check.include_legacy_rows == true && $contact.barbershop_id == null)
+        ) {
           error_type = "inputerror"
           error = "Selecione um cliente ativo."
         }
@@ -104,10 +112,18 @@ query "finance/transactions" verb=POST {
             db.get service {
               field_name = "id"
               field_value = $serviceId
-              output = ["id", "name", "price", "duration_minutes", "status"]
+              output = ["id", "name", "price", "duration_minutes", "status", "barbershop_id"]
             } as $service
 
             precondition ($service != null && $service.status == "active") {
+              error_type = "inputerror"
+              error = "Um ou mais serviços não estão ativos ou não existem."
+            }
+
+            precondition (
+              $service.barbershop_id == $access_check.barbershop_id
+              || ($access_check.include_legacy_rows == true && $service.barbershop_id == null)
+            ) {
               error_type = "inputerror"
               error = "Um ou mais serviços não estão ativos ou não existem."
             }
@@ -145,6 +161,14 @@ query "finance/transactions" verb=POST {
           error = "O agendamento vinculado não foi encontrado."
         }
 
+        precondition (
+          $linked_appointment.barbershop_id == $access_check.barbershop_id
+          || ($access_check.include_legacy_rows == true && $linked_appointment.barbershop_id == null)
+        ) {
+          error_type = "inputerror"
+          error = "O agendamento vinculado não foi encontrado."
+        }
+
         function.run "Quick Start/authorize_professional_scope" {
           input = {
             actor_id: $auth.id
@@ -166,6 +190,10 @@ query "finance/transactions" verb=POST {
         db.query finance_transaction {
           where = (
             $db.finance_transaction.appointment_id == $linked_appointment.id
+            && (
+              $db.finance_transaction.barbershop_id == $access_check.barbershop_id
+              || ($access_check.include_legacy_rows == true && $db.finance_transaction.barbershop_id == null)
+            )
             && $db.finance_transaction.status == "active"
             && $db.finance_transaction.type == "income"
           )
@@ -204,6 +232,7 @@ query "finance/transactions" verb=POST {
       data = {
         created_at: "now"
         updated_at: "now"
+        barbershop_id: $access_check.barbershop_id
         type: $input.type
         amount: $input.amount
         title: $input.title

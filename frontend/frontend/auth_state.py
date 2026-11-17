@@ -258,13 +258,17 @@ def _normalize_contact_phone(value: str) -> str:
     digits = "".join(character for character in str(value or "") if "0" <= character <= "9")
     if digits.startswith("55") and len(digits) in (12, 13):
         digits = digits[2:]
-    elif len(digits) in (11, 12) and digits.startswith("0"):
-        digits = digits[1:]
     return digits
 
 
 def _phone_for_api(value: Any) -> str:
     return _normalize_contact_phone(str(value or "").strip())
+
+
+def _form_value_or_state(
+    form_data: dict[str, Any], key: str, state_value: Any
+) -> Any:
+    return form_data.get(key) or state_value
 
 
 def _format_contact_phone(value: str) -> str:
@@ -304,6 +308,17 @@ def _normalize_cpf(value: str) -> str:
 
 
 def _contact_phone_validation_error(value: str) -> str:
+    raw_value = str(value or "").strip()
+    if raw_value == "":
+        return "Informe um telefone com DDD e 10 ou 11 dígitos."
+    if any(
+        character.isalpha()
+        or character not in "0123456789+() -"
+        for character in raw_value
+    ):
+        return "Informe um telefone válido usando apenas números e a máscara."
+    if "+" in raw_value and not raw_value.startswith("+55"):
+        return "Informe um telefone válido."
     digits = _normalize_contact_phone(value)
     if len(digits) not in (10, 11):
         return "Informe um telefone com DDD e 10 ou 11 dígitos."
@@ -533,6 +548,11 @@ class AuthState(rx.State):
     role: str = ""
     error_message: str = ""
     is_submitting: bool = False
+    signup_error_message: str = ""
+    signup_is_submitting: bool = False
+    signup_owner_phone: str = ""
+    signup_password_visible: bool = False
+    registration_success_message: str = ""
     professional_email: str = ""
     professional_phone: str = ""
     professional_cpf: str = ""
@@ -948,6 +968,83 @@ class AuthState(rx.State):
             yield rx.redirect("/change-password")
             return
         yield rx.redirect("/app")
+
+    @rx.event
+    def clear_signup_messages(self):
+        self.signup_error_message = ""
+        self.signup_is_submitting = False
+        self.signup_owner_phone = ""
+        self.signup_password_visible = False
+
+    @rx.event
+    def set_signup_owner_phone(self, value: str):
+        self.signup_owner_phone = _format_contact_phone(_phone_for_api(value))
+        self.signup_error_message = ""
+
+    @rx.event
+    async def signup_barbershop(self, form_data: dict[str, Any]):
+        if self.signup_is_submitting:
+            return
+
+        barbershop_name = str(form_data.get("barbershop_name") or "").strip()
+        owner_name = str(form_data.get("owner_name") or "").strip()
+        owner_email = _normalize_email(form_data.get("owner_email"))
+        raw_owner_phone = _form_value_or_state(
+            form_data, "owner_phone", self.signup_owner_phone
+        )
+        owner_phone = _phone_for_api(raw_owner_phone)
+        owner_password = str(form_data.get("owner_password") or "")
+
+        if not barbershop_name or not owner_name or not owner_email:
+            self.signup_error_message = "Preencha os campos obrigatórios."
+            return
+        phone_error = _contact_phone_validation_error(owner_phone)
+        if phone_error:
+            self.signup_error_message = phone_error
+            return
+        if (
+            len(owner_password) < 8
+            or not any(character.isalpha() for character in owner_password)
+            or not any(character.isdigit() for character in owner_password)
+        ):
+            self.signup_error_message = (
+                "A senha deve ter pelo menos 8 caracteres, uma letra e um número."
+            )
+            return
+
+        self.signup_is_submitting = True
+        self.signup_error_message = ""
+        self.registration_success_message = ""
+        yield
+        response = await self._request(
+            "POST",
+            "auth/signup",
+            {
+                "barbershop_name": barbershop_name,
+                "owner_name": owner_name,
+                "owner_email": owner_email,
+                "owner_phone": owner_phone,
+                "owner_password": owner_password,
+            },
+            error_context="cadastro da barbearia",
+        )
+        self.signup_is_submitting = False
+        if response is None:
+            self.signup_error_message = (
+                self.error_message or "Não foi possível cadastrar a barbearia."
+            )
+            return
+        if response.status_code != 200:
+            self.signup_error_message = _api_error_message(
+                response,
+                "Não foi possível cadastrar a barbearia. Confira os dados e tente novamente.",
+            )
+            return
+
+        self.registration_success_message = (
+            "Barbearia cadastrada com sucesso. Entre com o e-mail e a senha escolhidos."
+        )
+        yield rx.redirect("/login")
 
     @rx.event
     async def require_session(self):
@@ -2389,7 +2486,11 @@ class AuthState(rx.State):
         if self.is_submitting:
             return
         phone = _format_contact_phone(
-            str(form_data.get("phone") or self.professional_phone).strip()
+            str(
+                _form_value_or_state(
+                    form_data, "phone", self.professional_phone
+                )
+            ).strip()
         )
         normalized_phone = _phone_for_api(phone)
         cpf = _normalize_cpf(
@@ -2500,6 +2601,8 @@ class AuthState(rx.State):
     def toggle_password_visibility(self, field: str):
         if field == "login":
             self.login_password_visible = not self.login_password_visible
+        elif field == "signup":
+            self.signup_password_visible = not self.signup_password_visible
         elif field == "temporary":
             self.temporary_password_visible = not self.temporary_password_visible
         elif field == "temporary_confirmation":
@@ -4684,7 +4787,9 @@ class AuthState(rx.State):
         self.contact_form_error = ""
         name = str(form_data.get("name") or self.contact_form_name).strip()
         phone = _format_contact_phone(
-            str(form_data.get("phone") or self.contact_form_phone).strip()
+            str(
+                _form_value_or_state(form_data, "phone", self.contact_form_phone)
+            ).strip()
         )
         cpf = _normalize_cpf(str(form_data.get("cpf") or self.contact_form_cpf))
         birth_date = str(
@@ -5027,9 +5132,10 @@ def _auth_intro() -> rx.Component:
     )
 
 
-def _auth_shell(card: rx.Component) -> rx.Component:
+def _auth_shell(card: rx.Component, show_brand: bool = True) -> rx.Component:
+    brand = _brand() if show_brand else rx.fragment()
     return rx.el.main(
-        _brand(),
+        brand,
         rx.box(
             _auth_intro(),
             card,
@@ -5039,7 +5145,17 @@ def _auth_shell(card: rx.Component) -> rx.Component:
     )
 
 
-def _auth_card(title: str, description: str, form: rx.Component) -> rx.Component:
+def _auth_card(
+    title: str,
+    description: str,
+    form: rx.Component,
+    show_footer: bool = True,
+) -> rx.Component:
+    footer = (
+        rx.text("LOTUS BARBER · PAINEL INTERNO", class_name="pc-card-footer")
+        if show_footer
+        else rx.fragment()
+    )
     return rx.el.section(
         rx.box(class_name="pc-stripe", aria_hidden="true"),
         rx.vstack(
@@ -5050,7 +5166,7 @@ def _auth_card(title: str, description: str, form: rx.Component) -> rx.Component
                 "Acesso exclusivo para a equipe da barbearia.",
                 class_name="pc-card-note",
             ),
-            rx.text("LOTUS BARBER · PAINEL INTERNO", class_name="pc-card-footer"),
+            footer,
             class_name="pc-auth-card-content",
             spacing="0",
             align="stretch",
@@ -5069,6 +5185,8 @@ def _password_input(
     min_length: int = 0,
     invalid: Any = False,
     required: bool = True,
+    auto_complete: str = "",
+    aria_description: str = "",
 ) -> rx.Component:
     input_props: dict[str, Any] = {
         "id": field_id,
@@ -5083,6 +5201,10 @@ def _password_input(
         input_props["placeholder"] = placeholder
     if min_length:
         input_props["min_length"] = min_length
+    if auto_complete:
+        input_props["auto_complete"] = auto_complete
+    if aria_description:
+        input_props["aria_description"] = aria_description
 
     return rx.el.div(
         rx.el.input(**input_props),
@@ -5108,6 +5230,15 @@ def _password_input(
 def login_page() -> rx.Component:
     login_form = rx.form(
         rx.vstack(
+            rx.cond(
+                AuthState.registration_success_message != "",
+                rx.text(
+                    AuthState.registration_success_message,
+                    role="status",
+                    class_name="pc-success",
+                ),
+                rx.fragment(),
+            ),
             rx.vstack(
                 rx.el.label("E-mail", html_for="login-email", class_name="pc-field-label"),
                 rx.input(
@@ -5155,6 +5286,11 @@ def login_page() -> rx.Component:
                 rx.text("Validando seu acesso...", role="status", class_name="pc-submit-status"),
                 rx.fragment(),
             ),
+            rx.link(
+                "Cadastre sua barbearia",
+                href="/signup",
+                class_name="pc-card-note",
+            ),
             width="100%",
             spacing="4",
         ),
@@ -5168,7 +5304,163 @@ def login_page() -> rx.Component:
             "Bem-vindo de volta",
             "Acesse sua conta da equipe.",
             login_form,
-        )
+            show_footer=False,
+        ),
+        show_brand=False,
+    )
+
+
+def signup_page() -> rx.Component:
+    signup_form = rx.form(
+        rx.vstack(
+            rx.vstack(
+                rx.el.label(
+                    "Nome da barbearia",
+                    html_for="signup-barbershop-name",
+                    class_name="pc-field-label",
+                ),
+                rx.input(
+                    id="signup-barbershop-name",
+                    name="barbershop_name",
+                    type="text",
+                    required=True,
+                    max_length=120,
+                    class_name="pc-input",
+                    width="100%",
+                ),
+                class_name="pc-field",
+                align="stretch",
+                spacing="2",
+            ),
+            rx.vstack(
+                rx.el.label(
+                    "Nome do proprietário",
+                    html_for="signup-owner-name",
+                    class_name="pc-field-label",
+                ),
+                rx.input(
+                    id="signup-owner-name",
+                    name="owner_name",
+                    type="text",
+                    required=True,
+                    max_length=120,
+                    class_name="pc-input",
+                    width="100%",
+                ),
+                class_name="pc-field",
+                align="stretch",
+                spacing="2",
+            ),
+            rx.vstack(
+                rx.el.label(
+                    "E-mail",
+                    html_for="signup-owner-email",
+                    class_name="pc-field-label",
+                ),
+                rx.input(
+                    id="signup-owner-email",
+                    name="owner_email",
+                    type="email",
+                    required=True,
+                    max_length=254,
+                    auto_complete=True,
+                    class_name="pc-input",
+                    width="100%",
+                ),
+                class_name="pc-field",
+                align="stretch",
+                spacing="2",
+            ),
+            rx.vstack(
+                rx.el.label(
+                    "Telefone com DDD",
+                    html_for="signup-owner-phone",
+                    class_name="pc-field-label",
+                ),
+                rx.input(
+                    id="signup-owner-phone",
+                    name="owner_phone",
+                    type="tel",
+                    required=True,
+                    input_mode="numeric",
+                    pattern=r"\([0-9]{2}\) [0-9]{4,5}-[0-9]{4}",
+                    max_length=15,
+                    placeholder="(11) 99999-9999",
+                    value=AuthState.signup_owner_phone,
+                    aria_description="Telefone com DDD. Exemplo: (11) 99999-9999.",
+                    class_name="pc-input",
+                    width="100%",
+                    on_change=AuthState.set_signup_owner_phone,
+                ),
+                class_name="pc-field",
+                align="stretch",
+                spacing="2",
+            ),
+            rx.vstack(
+                rx.el.label(
+                    "Senha",
+                    html_for="signup-owner-password",
+                    class_name="pc-field-label",
+                ),
+                _password_input(
+                    "signup-owner-password",
+                    "owner_password",
+                    "signup",
+                    AuthState.signup_password_visible,
+                    min_length=8,
+                    auto_complete="new-password",
+                    aria_description="Mínimo de 8 caracteres, incluindo uma letra e um número.",
+                ),
+                class_name="pc-field",
+                align="stretch",
+                spacing="2",
+            ),
+            rx.cond(
+                AuthState.signup_error_message != "",
+                rx.text(
+                    AuthState.signup_error_message,
+                    role="alert",
+                    class_name="pc-alert",
+                ),
+                rx.fragment(),
+            ),
+            rx.button(
+                rx.cond(
+                    AuthState.signup_is_submitting,
+                    "Cadastrando...",
+                    "Cadastrar barbearia",
+                ),
+                type="submit",
+                disabled=AuthState.signup_is_submitting,
+                class_name="pc-button pc-button-primary",
+                width="100%",
+            ),
+            rx.cond(
+                AuthState.signup_is_submitting,
+                rx.text(
+                    "Criando sua conta...",
+                    role="status",
+                    class_name="pc-submit-status",
+                ),
+                rx.fragment(),
+            ),
+            rx.link("Já tem uma conta? Entrar", href="/login", class_name="pc-card-note"),
+            width="100%",
+            spacing="4",
+        ),
+        on_submit=AuthState.signup_barbershop,
+        reset_on_submit=False,
+        width="100%",
+        class_name="pc-form",
+    )
+    return _auth_shell(
+        _auth_card(
+            "Cadastre sua barbearia",
+            "Crie a barbearia e a conta proprietária para começar.",
+            signup_form,
+            show_footer=False,
+        ),
+        show_brand=False,
     )
 
 
@@ -8576,8 +8868,14 @@ def register_pages(app: rx.App):
     app.add_page(
         login_page,
         route="/login",
-        title="Entrar | Lotus Barber",
+        title="Entrar",
         on_load=AuthState.clear_menu_success_messages,
+    )
+    app.add_page(
+        signup_page,
+        route="/signup",
+        title="Cadastrar barbearia",
+        on_load=AuthState.clear_signup_messages,
     )
     app.add_page(
         change_password_page,

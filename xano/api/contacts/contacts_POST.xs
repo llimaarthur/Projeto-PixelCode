@@ -75,7 +75,13 @@ query "contacts" verb=POST {
     }
 
     db.query contact {
-      where = $db.contact.phone_normalized == $normalized_phone
+      where = (
+        (
+          $db.contact.barbershop_id == $role_check.barbershop_id
+          || ($role_check.include_legacy_rows == true && $db.contact.barbershop_id == null)
+        )
+        && $db.contact.phone_normalized == $normalized_phone
+      )
       return = {type: "list"}
     } as $duplicates
 
@@ -87,7 +93,13 @@ query "contacts" verb=POST {
     conditional {
       if ($normalized_cpf != "") {
         db.query contact {
-          where = $db.contact.cpf_normalized == $normalized_cpf
+          where = (
+            (
+              $db.contact.barbershop_id == $role_check.barbershop_id
+              || ($role_check.include_legacy_rows == true && $db.contact.barbershop_id == null)
+            )
+            && $db.contact.cpf_normalized == $normalized_cpf
+          )
           return = {type: "list"}
         } as $cpf_duplicates
 
@@ -97,7 +109,13 @@ query "contacts" verb=POST {
         }
 
         db.query user {
-          where = $db.user.cpf == $normalized_cpf
+          where = (
+            (
+              $db.user.barbershop_id == $role_check.barbershop_id
+              || ($role_check.include_legacy_rows == true && $db.user.barbershop_id == null)
+            )
+            && $db.user.cpf == $normalized_cpf
+          )
           return = {type: "list"}
         } as $user_cpf_duplicates
 
@@ -112,6 +130,7 @@ query "contacts" verb=POST {
       data = {
         created_at        : "now"
         updated_at        : "now"
+        barbershop_id     : $role_check.barbershop_id
         name              : $input.name
         phone             : $normalized_phone
         phone_normalized  : $normalized_phone

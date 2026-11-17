@@ -18,7 +18,7 @@ query "auth/me" verb=PATCH {
     db.get user {
       field_name = "id"
       field_value = $auth.id
-      output = ["id", "cpf"]
+      output = ["id", "cpf", "barbershop_id"]
     } as $existing_user
 
     precondition ($input.profile_name != "" && ($input.profile_name|strlen) <= 120) {
@@ -66,7 +66,13 @@ query "auth/me" verb=PATCH {
     conditional {
       if ($cpf_digits != "") {
         db.query contact {
-          where = $db.contact.cpf_normalized == $cpf_digits
+          where = (
+            (
+              $db.contact.barbershop_id == $role_check.barbershop_id
+              || ($role_check.include_legacy_rows == true && $db.contact.barbershop_id == null)
+            )
+            && $db.contact.cpf_normalized == $cpf_digits
+          )
           return = {type: "list"}
         } as $existing_contact_cpf
 
@@ -76,7 +82,14 @@ query "auth/me" verb=PATCH {
         }
 
         db.query user {
-          where = $db.user.cpf == $cpf_digits && $db.user.id != $auth.id
+          where = (
+            (
+              $db.user.barbershop_id == $role_check.barbershop_id
+              || ($role_check.include_legacy_rows == true && $db.user.barbershop_id == null)
+            )
+            && $db.user.cpf == $cpf_digits
+            && $db.user.id != $auth.id
+          )
           return = {type: "list"}
         } as $existing_user_cpf
 

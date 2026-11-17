@@ -5,6 +5,9 @@ table finance_transaction {
     int id
     timestamp created_at?=now
     timestamp updated_at?=now
+    int barbershop_id? {
+      table = "barbershop"
+    }
     enum type {
       values = ["income", "expense"]
     }
@@ -38,6 +41,7 @@ table finance_transaction {
 
   index = [
     {type: "primary", field: [{name: "id"}]}
+    {type: "btree", field: [{name: "barbershop_id", op: "asc"}, {name: "occurred_at", op: "desc"}]}
     {type: "btree", field: [{name: "occurred_at", op: "desc"}]}
     {type: "btree", field: [{name: "type", op: "asc"}, {name: "occurred_at", op: "desc"}]}
     {type: "btree", field: [{name: "created_by", op: "asc"}]}

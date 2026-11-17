@@ -7,33 +7,15 @@ query "services/admin" verb=GET {
   }
 
   stack {
-    db.get user {
-      field_name = "id"
-      field_value = $auth.id
-      output = ["id", "role", "status", "must_change_password"]
-    } as $user
-
-    precondition ($user != null) {
-      error_type = "accessdenied"
-      error = "Invalid authenticated user."
-    }
-
-    precondition ($user.status == "active" || $user.status == "enabled") {
-      error_type = "accessdenied"
-      error = "User account is inactive."
-    }
-
-    precondition ($user.must_change_password != true) {
-      error_type = "accessdenied"
-      error = "Password change is required before using protected operations."
-    }
-
-    precondition ($user.role == "admin") {
-      error_type = "accessdenied"
-      error = "User does not have the required role to perform this action. Required: admin."
-    }
+    function.run "Quick Start/enforce_role" {
+      input = {user_id: $auth.id, required_role: "admin"}
+    } as $role_check
 
     db.query service {
+      where = (
+        $db.service.barbershop_id == $role_check.barbershop_id
+        || ($role_check.include_legacy_rows == true && $db.service.barbershop_id == null)
+      )
       return = {type: "list"}
     } as $services
   }

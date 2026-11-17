@@ -15,6 +15,10 @@ query "auth/professionals" verb=GET {
       where = (
         ($db.user.role == "professional" || $db.user.role == "admin")
         && ($db.user.status == "active" || $db.user.status == "enabled")
+        && (
+          $db.user.barbershop_id == $role_check.barbershop_id
+          || ($role_check.include_legacy_rows == true && $db.user.barbershop_id == null)
+        )
       )
       sort = {user.name: "asc"}
       output = ["id", "name", "email", "phone", "role", "profile_photo_url"]

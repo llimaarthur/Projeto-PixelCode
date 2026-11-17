@@ -12,7 +12,7 @@ query "auth/login" verb=POST {
     db.get user {
       field_name = "email"
       field_value = $input.email
-      output = ["id", "name", "email", "password", "role", "status", "must_change_password"]
+      output = ["id", "name", "email", "password", "role", "status", "must_change_password", "barbershop_id"]
     } as $user
   
     // Check to make sure a user with that email exists
@@ -57,6 +57,13 @@ query "auth/login" verb=POST {
       error_type = "accessdenied"
       error = "Invalid Credentials."
     }
+
+    function.run "Quick Start/resolve_user_barbershop" {
+      input = {
+        user_id: $user.id
+        bootstrap_legacy: true
+      }
+    } as $barbershop_scope
   
     // Create an authentication token
     security.create_auth_token {
@@ -85,12 +92,14 @@ query "auth/login" verb=POST {
       email: $user.email
       role: $user.role
       status: $user.status
+      barbershop_id: $barbershop_scope.barbershop_id
       must_change_password: $user.must_change_password
     }
     name: $user.name
     email: $user.email
     role: $user.role
     status: $user.status
+    barbershop_id: $barbershop_scope.barbershop_id
     must_change_password: $user.must_change_password
   }
   tags = ["xano:quick-start"]

@@ -5,6 +5,9 @@ table service {
     int id
     timestamp created_at?=now
     timestamp updated_at?=now
+    int barbershop_id? {
+      table = "barbershop"
+    }
     text name filters=trim
     text description? filters=trim
     decimal price
@@ -17,6 +20,7 @@ table service {
 
   index = [
     {type: "primary", field: [{name: "id"}]}
+    {type: "btree", field: [{name: "barbershop_id", op: "asc"}]}
     {type: "btree", field: [{name: "status", op: "asc"}]}
     {type: "btree", field: [{name: "name", op: "asc"}]}
   ]

@@ -5,6 +5,9 @@ table event_log {
   schema {
     int id
     timestamp created_at?=now
+    int barbershop_id? {
+      table = "barbershop"
+    }
   
     // Reference to the user who performed the action.
     int user_id? {
@@ -20,6 +23,7 @@ table event_log {
 
   index = [
     {type: "primary", field: [{name: "id"}]}
+    {type: "btree", field: [{name: "barbershop_id", op: "asc"}, {name: "created_at", op: "desc"}]}
     {type: "btree", field: [{name: "created_at", op: "desc"}]}
   ]
 

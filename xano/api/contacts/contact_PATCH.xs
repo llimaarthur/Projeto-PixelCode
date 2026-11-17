@@ -31,6 +31,14 @@ query "contacts/{contact_id}" verb=PATCH {
       error = "Contato não encontrado."
     }
 
+    precondition (
+      $existing_contact.barbershop_id == $role_check.barbershop_id
+      || ($role_check.include_legacy_rows == true && $existing_contact.barbershop_id == null)
+    ) {
+      error_type = "inputerror"
+      error = "Contato não encontrado."
+    }
+
     var $normalized_phone {
       value = $input.phone
     }
@@ -86,7 +94,14 @@ query "contacts/{contact_id}" verb=PATCH {
     }
 
     db.query contact {
-      where = $db.contact.phone_normalized == $normalized_phone && $db.contact.id != $input.contact_id
+      where = (
+        (
+          $db.contact.barbershop_id == $role_check.barbershop_id
+          || ($role_check.include_legacy_rows == true && $db.contact.barbershop_id == null)
+        )
+        && $db.contact.phone_normalized == $normalized_phone
+        && $db.contact.id != $input.contact_id
+      )
       return = {type: "list"}
     } as $duplicates
 
@@ -98,7 +113,14 @@ query "contacts/{contact_id}" verb=PATCH {
     conditional {
       if ($input.cpf != null && $input.cpf != "" && $normalized_cpf != "") {
         db.query contact {
-          where = $db.contact.cpf_normalized == $normalized_cpf && $db.contact.id != $input.contact_id
+          where = (
+            (
+              $db.contact.barbershop_id == $role_check.barbershop_id
+              || ($role_check.include_legacy_rows == true && $db.contact.barbershop_id == null)
+            )
+            && $db.contact.cpf_normalized == $normalized_cpf
+            && $db.contact.id != $input.contact_id
+          )
           return = {type: "list"}
         } as $cpf_duplicates
 
@@ -108,7 +130,13 @@ query "contacts/{contact_id}" verb=PATCH {
         }
 
         db.query user {
-          where = $db.user.cpf == $normalized_cpf
+          where = (
+            (
+              $db.user.barbershop_id == $role_check.barbershop_id
+              || ($role_check.include_legacy_rows == true && $db.user.barbershop_id == null)
+            )
+            && $db.user.cpf == $normalized_cpf
+          )
           return = {type: "list"}
         } as $user_cpf_duplicates
 

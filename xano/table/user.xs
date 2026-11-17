@@ -5,10 +5,13 @@ table user {
   schema {
     int id
     timestamp created_at?=now
+    int barbershop_id? {
+      table = "barbershop"
+    }
     text name filters=trim
     email email filters=trim|lower
     text phone filters=trim
-    text cpf filters=trim
+    text cpf? filters=trim
     image? profile_photo?
     text profile_photo_url?
     text profile_photo_public_id?
@@ -37,6 +40,7 @@ table user {
   index = [
     {type: "primary", field: [{name: "id"}]}
     {type: "btree", field: [{name: "created_at", op: "desc"}]}
+    {type: "btree", field: [{name: "barbershop_id", op: "asc"}]}
     {type: "btree|unique", field: [{name: "email", op: "asc"}]}
     {type: "btree", field: [{name: "role", op: "asc"}]}
   ]

@@ -23,6 +23,27 @@ O sistema não é um portal do cliente. Ele é um painel de operação da barbea
 
 ## 3. Entidades centrais do domínio
 
+### 3.0 Barbearia
+
+Representa uma organização cadastrada no PixelCode e é a raiz de isolamento
+dos dados. Cada conta interna pertence a exatamente uma barbearia. Contatos,
+serviços, agendamentos, bloqueios de agenda e movimentações financeiras
+pertencem a uma barbearia; suas relações só podem conectar registros do mesmo
+tenant.
+
+O proprietário é o primeiro usuário com papel de administrador da barbearia.
+Administradores e profissionais compartilham os dados permitidos dentro dessa
+organização, sem papel de administração global. Filiais e usuários associados
+a várias barbearias não fazem parte do modelo atual.
+
+Para preservar os dados anteriores à adoção do multi-tenant, registros sem
+`barbershop_id` são tratados como pertencentes somente à barbearia inicial,
+identificada por `migration_key = "legacy-default"` e com compatibilidade legada
+ativa. Essa associação é lógica: não há backfill em massa. Qualquer outra
+barbearia não pode consultar nem referenciar esses registros. Todas as novas
+gravações recebem `barbershop_id` explícito, inclusive na barbearia inicial;
+registros antigos podem continuar sem vínculo até uma migração futura.
+
 ### 3.1 Cliente / Contato externo
 
 Representa a pessoa que entra em contato com a barbearia, mas não possui acesso ao sistema.
@@ -245,6 +266,8 @@ representa conciliação automática com uma conta bancária.
 
 A estrutura central do domínio pode ser resumida assim:
 
+- Cada conta interna e cada registro operacional pertence a uma barbearia;
+- os dados de uma barbearia são isolados dos demais tenants;
 - Cliente entra em contato com a barbearia por WhatsApp, ligação, indicação ou outro canal externo;
 - Barbeiro recebe e organiza o pedido;
 - Agendamento é registrado com cliente, barbeiro e serviços;
@@ -259,16 +282,20 @@ A estrutura central do domínio pode ser resumida assim:
 As regras abaixo devem ser preservadas em qualquer operação:
 
 1. O cliente não precisa ter acesso ao sistema nem conta de usuário.
-2. Todo agendamento deve ter cliente, barbeiro e serviço definidos.
-3. O barbeiro deve estar ativo para receber agendamentos.
-4. O serviço deve estar ativo para estar disponível.
-5. Um barbeiro não pode ter dois agendamentos no mesmo horário.
-6. O valor do serviço no agendamento deve ser preservado mesmo que o preço do catálogo mude mais tarde.
-7. Um agendamento pode existir sem pagamento, mas não sem dados mínimos de negócio.
-8. Movimentações financeiras não são inferidas do status do agendamento; uma
+2. Cada usuário interno e registro operacional pertence a uma única barbearia;
+   o backend deriva o tenant da sessão autenticada e impede acesso cruzado.
+3. Todo agendamento deve ter cliente, barbeiro e serviço definidos e vinculados
+   à mesma barbearia.
+4. O barbeiro deve estar ativo para receber agendamentos.
+5. O serviço deve estar ativo para estar disponível.
+6. Um barbeiro não pode ter dois agendamentos no mesmo horário.
+7. O valor do serviço no agendamento deve ser preservado mesmo que o preço do catálogo mude mais tarde.
+8. Um agendamento pode existir sem pagamento, mas não sem dados mínimos de negócio.
+9. Movimentações financeiras não são inferidas do status do agendamento; uma
    receita pode ser explicitamente vinculada a um cliente, serviços e
    agendamento.
-9. A origem do contato e a data do primeiro contato são elementos importantes para registrar o histórico do relacionamento com a barbearia.
+10. A origem do contato e a data do primeiro contato são elementos importantes
+    para registrar o histórico do relacionamento com a barbearia.
 
 ---
 

@@ -17,10 +17,18 @@ query "auth/professionals/repair" verb=POST {
     db.get user {
       field_name = "email"
       field_value = $input.account_email
-      output = ["id", "name", "email", "role", "status"]
+      output = ["id", "name", "email", "role", "status", "barbershop_id"]
     } as $professional
 
     precondition ($professional != null && $professional.role == "professional") {
+      error_type = "inputerror"
+      error = "A professional account with this email was not found."
+    }
+
+    precondition (
+      $professional.barbershop_id == $role_check.barbershop_id
+      || ($role_check.include_legacy_rows == true && $professional.barbershop_id == null)
+    ) {
       error_type = "inputerror"
       error = "A professional account with this email was not found."
     }
@@ -35,7 +43,14 @@ query "auth/professionals/repair" verb=POST {
     }
 
     db.query user {
-      where = $db.user.cpf == $normalized_cpf && $db.user.id != $professional.id
+      where = (
+        (
+          $db.user.barbershop_id == $role_check.barbershop_id
+          || ($role_check.include_legacy_rows == true && $db.user.barbershop_id == null)
+        )
+        && $db.user.cpf == $normalized_cpf
+        && $db.user.id != $professional.id
+      )
       return = {type: "list"}
     } as $existing_user_cpf
 
@@ -45,7 +60,13 @@ query "auth/professionals/repair" verb=POST {
     }
 
     db.query contact {
-      where = $db.contact.cpf_normalized == $normalized_cpf
+      where = (
+        (
+          $db.contact.barbershop_id == $role_check.barbershop_id
+          || ($role_check.include_legacy_rows == true && $db.contact.barbershop_id == null)
+        )
+        && $db.contact.cpf_normalized == $normalized_cpf
+      )
       return = {type: "list"}
     } as $existing_contact_cpf
 

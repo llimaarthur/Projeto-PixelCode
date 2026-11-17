@@ -26,6 +26,14 @@ query "finance/transactions/{transaction_id}/cancel" verb=PATCH {
       error = "Movimentação não encontrada."
     }
 
+    precondition (
+      $existing_transaction.barbershop_id == $access_check.barbershop_id
+      || ($access_check.include_legacy_rows == true && $existing_transaction.barbershop_id == null)
+    ) {
+      error_type = "inputerror"
+      error = "Movimentação não encontrada."
+    }
+
     precondition ($existing_transaction.status == "active") {
       error_type = "inputerror"
       error = "Esta movimentação já foi estornada."
@@ -34,7 +42,7 @@ query "finance/transactions/{transaction_id}/cancel" verb=PATCH {
     db.get user {
       field_name = "id"
       field_value = $auth.id
-      output = ["id", "role"]
+      output = ["id", "role", "barbershop_id"]
     } as $actor
 
     precondition ($actor.role == "admin" || $existing_transaction.created_by == $auth.id) {
@@ -64,6 +72,14 @@ query "finance/transactions/{transaction_id}/cancel" verb=PATCH {
           error = "O status do agendamento mudou e não pode ser restaurado automaticamente."
         }
 
+        precondition (
+          $linked_appointment.barbershop_id == $access_check.barbershop_id
+          || ($access_check.include_legacy_rows == true && $linked_appointment.barbershop_id == null)
+        ) {
+          error_type = "inputerror"
+          error = "O agendamento vinculado não foi encontrado."
+        }
+
         function.run "Quick Start/authorize_professional_scope" {
           input = {
             actor_id: $auth.id
@@ -86,6 +102,7 @@ query "finance/transactions/{transaction_id}/cancel" verb=PATCH {
       data = {
         changed_at: "now"
         action: "cancelled"
+        barbershop_id: $access_check.barbershop_id
         transaction_id: $existing_transaction.id
         changed_by: $auth.id
         previous_type: $existing_transaction.type

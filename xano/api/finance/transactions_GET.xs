@@ -22,12 +22,22 @@ query "finance/transactions" verb=GET {
     }
 
     db.query finance_transaction {
+      where = (
+        $db.finance_transaction.barbershop_id == $access_check.barbershop_id
+        || ($access_check.include_legacy_rows == true && $db.finance_transaction.barbershop_id == null)
+      )
       sort = {finance_transaction.occurred_at: "desc", finance_transaction.id: "desc"}
       return = {type: "list"}
     } as $all_transactions
 
     db.query finance_transaction {
-      where = $db.finance_transaction.status == "cancelled"
+      where = (
+        (
+          $db.finance_transaction.barbershop_id == $access_check.barbershop_id
+          || ($access_check.include_legacy_rows == true && $db.finance_transaction.barbershop_id == null)
+        )
+        && $db.finance_transaction.status == "cancelled"
+      )
       return = {type: "list"}
     } as $cancelled_transactions
 

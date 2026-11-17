@@ -32,6 +32,14 @@ query "finance/transactions/{transaction_id}" verb=PATCH {
       error = "Movimentação não encontrada."
     }
 
+    precondition (
+      $existing_transaction.barbershop_id == $access_check.barbershop_id
+      || ($access_check.include_legacy_rows == true && $existing_transaction.barbershop_id == null)
+    ) {
+      error_type = "inputerror"
+      error = "Movimentação não encontrada."
+    }
+
     precondition ($existing_transaction.status == "active") {
       error_type = "inputerror"
       error = "Uma movimentação estornada não pode ser editada."
@@ -61,6 +69,7 @@ query "finance/transactions/{transaction_id}" verb=PATCH {
       data = {
         changed_at: "now"
         action: "edited"
+        barbershop_id: $access_check.barbershop_id
         transaction_id: $existing_transaction.id
         changed_by: $auth.id
         previous_type: $existing_transaction.type

@@ -18,7 +18,7 @@ query "appointments/blocks" verb=GET {
     db.get user {
       field_name = "id"
       field_value = $auth.id
-      output = ["id", "role", "status", "must_change_password"]
+      output = ["id", "role", "status", "must_change_password", "barbershop_id"]
     } as $actor
 
     precondition ($actor != null && ($actor.status == "active" || $actor.status == "enabled")) {
@@ -61,6 +61,10 @@ query "appointments/blocks" verb=GET {
     db.query schedule_block {
       where = (
         $db.schedule_block.status == "active"
+        && (
+          $db.schedule_block.barbershop_id == $scope_check.barbershop_id
+          || ($scope_check.include_legacy_rows == true && $db.schedule_block.barbershop_id == null)
+        )
         && $db.schedule_block.start_at < $input.day_end
         && $db.schedule_block.end_at > $input.day_start
         && (

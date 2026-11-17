@@ -4,6 +4,9 @@ table finance_transaction_revision {
   schema {
     int id
     timestamp changed_at?=now
+    int barbershop_id? {
+      table = "barbershop"
+    }
     enum action {
       values = ["edited", "cancelled"]
     }
@@ -36,6 +39,7 @@ table finance_transaction_revision {
 
   index = [
     {type: "primary", field: [{name: "id"}]}
+    {type: "btree", field: [{name: "barbershop_id", op: "asc"}, {name: "transaction_id", op: "asc"}]}
     {type: "btree", field: [{name: "transaction_id", op: "asc"}, {name: "changed_at", op: "desc"}]}
     {type: "btree", field: [{name: "changed_by", op: "asc"}]}
   ]

@@ -30,6 +30,8 @@ query "appointments" verb=POST {
         professional_id: $input.professional_id
         service_ids: $input.service_ids
         start_at: $input.start_at
+        barbershop_id: $scope_check.barbershop_id
+        include_legacy_rows: $scope_check.include_legacy_rows
       }
     } as $prepared
 
@@ -37,6 +39,7 @@ query "appointments" verb=POST {
       data = {
         created_at       : "now"
         updated_at       : "now"
+        barbershop_id    : $scope_check.barbershop_id
         contact_id       : $input.contact_id
         contact_name_snapshot: $prepared.contact_name_snapshot
         contact_phone_snapshot: $prepared.contact_phone_snapshot

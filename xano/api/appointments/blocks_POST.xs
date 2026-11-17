@@ -14,7 +14,7 @@ query "appointments/blocks" verb=POST {
     db.get user {
       field_name = "id"
       field_value = $auth.id
-      output = ["id", "role", "status", "must_change_password"]
+      output = ["id", "role", "status", "must_change_password", "barbershop_id"]
     } as $actor
 
     precondition ($actor != null && ($actor.status == "active" || $actor.status == "enabled")) {
@@ -61,6 +61,13 @@ query "appointments/blocks" verb=POST {
       value = null
     }
 
+    function.run "Quick Start/authorize_professional_scope" {
+      input = {
+        actor_id: $auth.id
+        target_professional_id: $input.professional_id
+      }
+    } as $scope_check
+
     conditional {
       if ($input.professional_id == 0) {
         precondition ($actor.role == "admin") {
@@ -73,18 +80,16 @@ query "appointments/blocks" verb=POST {
           value = $input.professional_id
         }
 
-        function.run "Quick Start/authorize_professional_scope" {
-          input = {
-            actor_id: $auth.id
-            target_professional_id: $input.professional_id
-          }
-        } as $scope_check
       }
     }
 
     db.query appointment {
       where = (
         $db.appointment.status != "cancelled"
+        && (
+          $db.appointment.barbershop_id == $scope_check.barbershop_id
+          || ($scope_check.include_legacy_rows == true && $db.appointment.barbershop_id == null)
+        )
         && $db.appointment.start_at < $input.end_at
         && $db.appointment.end_at > $input.start_at
         && (
@@ -104,6 +109,7 @@ query "appointments/blocks" verb=POST {
       data = {
         created_at      : "now"
         updated_at      : "now"
+        barbershop_id   : $scope_check.barbershop_id
         professional_id : $professional_reference
         start_at        : $input.start_at
         end_at          : $input.end_at

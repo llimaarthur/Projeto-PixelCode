@@ -29,6 +29,7 @@ query "reset/magic-link-login" verb=POST {
         "email"
         "role"
         "status"
+        "barbershop_id"
         "password_reset.token"
         "password_reset.expiration"
         "password_reset.used"
@@ -39,7 +40,7 @@ query "reset/magic-link-login" verb=POST {
       error_type = "unauthorized"
       error = "Invalid credentials."
     }
-  
+
     // Validate the UUID matches the hashed value
     security.check_password {
       text_password = $input.magic_token
@@ -61,6 +62,13 @@ query "reset/magic-link-login" verb=POST {
     precondition ($user.password_reset.used == false) {
       error = "This magic link has already been used. Please request another one."
     }
+
+    function.run "Quick Start/resolve_user_barbershop" {
+      input = {
+        user_id: $user.id
+        bootstrap_legacy: true
+      }
+    } as $barbershop_scope
   
     // Create an authentication token
     security.create_auth_token {

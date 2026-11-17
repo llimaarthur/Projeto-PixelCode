@@ -12,11 +12,22 @@ function "Quick Start/log_event" {
   }
 
   stack {
+    db.get user {
+      field_name = "id"
+      field_value = $input.user_id
+      output = ["barbershop_id"]
+    } as $user
+
+    function.run "Quick Start/resolve_user_barbershop" {
+      input = {user_id: $input.user_id}
+    } as $barbershop_scope
+
     // Add a new user event log entry
     db.add event_log {
       data = {
         created_at: "now"
         user_id   : $input.user_id
+        barbershop_id: $barbershop_scope.barbershop_id
         action    : $input.action
         metadata  : $input.metadata
       }

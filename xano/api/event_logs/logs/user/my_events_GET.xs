@@ -13,7 +13,13 @@ query "logs/user/my_events" verb=GET {
 
     // Retrieve event logs for the authenticated user
     db.query event_log {
-      where = $db.event_log.user_id == $auth.id
+      where = (
+        $db.event_log.user_id == $auth.id
+        && (
+          $db.event_log.barbershop_id == $role_check.barbershop_id
+          || ($role_check.include_legacy_rows == true && $db.event_log.barbershop_id == null)
+        )
+      )
       return = {type: "list"}
     } as $user_events
   }

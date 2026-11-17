@@ -23,6 +23,29 @@ query "appointments/blocks/{block_id}" verb=DELETE {
     }
 
     conditional {
+      if ($block.professional_id != null) {
+        var.update $target_professional_id {
+          value = $block.professional_id
+        }
+      }
+    }
+
+    function.run "Quick Start/authorize_professional_scope" {
+      input = {
+        actor_id: $auth.id
+        target_professional_id: $target_professional_id
+      }
+    } as $scope_check
+
+    precondition (
+      $block.barbershop_id == $scope_check.barbershop_id
+      || ($scope_check.include_legacy_rows == true && $block.barbershop_id == null)
+    ) {
+      error_type = "inputerror"
+      error = "Bloqueio não encontrado ou já liberado."
+    }
+
+    conditional {
       if ($block.professional_id == null) {
         db.get user {
           field_name = "id"
@@ -41,13 +64,6 @@ query "appointments/blocks/{block_id}" verb=DELETE {
         }
       }
     }
-
-    function.run "Quick Start/authorize_professional_scope" {
-      input = {
-        actor_id: $auth.id
-        target_professional_id: $target_professional_id
-      }
-    } as $scope_check
 
     db.edit schedule_block {
       field_name = "id"
