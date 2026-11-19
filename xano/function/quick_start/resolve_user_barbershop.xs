@@ -38,7 +38,7 @@ function "Quick Start/resolve_user_barbershop" {
             db.add barbershop {
               data = {
                 created_at: "now"
-                name: "Lotus Barber"
+                name: "Barbearia inicial"
                 status: "active"
                 migration_key: "legacy-default"
                 migration_completed: false

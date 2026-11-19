@@ -40,6 +40,21 @@ query "finance/transactions/{transaction_id}" verb=PATCH {
       error = "Movimentação não encontrada."
     }
 
+    conditional {
+      if ($access_check.role == "professional" && $existing_transaction.contact_id != null) {
+        db.get contact {
+          field_name = "id"
+          field_value = $existing_transaction.contact_id
+          output = ["id", "professional_id"]
+        } as $contact
+
+        precondition ($contact != null && $contact.professional_id == $auth.id) {
+          error_type = "accessdenied"
+          error = "Você só pode editar movimentações vinculadas aos seus clientes."
+        }
+      }
+    }
+
     precondition ($existing_transaction.status == "active") {
       error_type = "inputerror"
       error = "Uma movimentação estornada não pode ser editada."

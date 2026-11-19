@@ -1,4 +1,5 @@
 import asyncio
+import json
 import os
 import re
 import unicodedata
@@ -6,7 +7,7 @@ from datetime import date, datetime, time, timedelta, timezone
 from decimal import Decimal, InvalidOperation
 from math import ceil, isfinite
 from pathlib import Path
-from typing import Any
+from typing import Any, TypedDict
 
 import httpx
 import reflex as rx
@@ -59,14 +60,229 @@ BRAZIL_AREA_CODES = frozenset(
     }
 )
 BARBERSHOP_TIMEZONE = timezone(timedelta(hours=-3))
-BARBERSHOP_HOURS = {
-    0: ((9 * 60, 12 * 60), (13 * 60, 19 * 60)),
-    1: ((9 * 60, 12 * 60), (13 * 60, 19 * 60)),
-    2: ((9 * 60, 12 * 60), (13 * 60, 19 * 60)),
-    3: ((9 * 60, 12 * 60), (13 * 60, 19 * 60)),
-    4: ((9 * 60, 12 * 60), (13 * 60, 19 * 60)),
-    5: ((9 * 60, 14 * 60),),
-}
+WEEKDAY_LABELS = (
+    "Segunda-feira",
+    "Terça-feira",
+    "Quarta-feira",
+    "Quinta-feira",
+    "Sexta-feira",
+    "Sábado",
+    "Domingo",
+)
+
+
+class WorkingHourInterval(TypedDict):
+    start_minute: int
+    end_minute: int
+    index: int
+    start_value: str
+    end_value: str
+
+
+class WorkingHourDay(TypedDict):
+    day_of_week: int
+    label: str
+    intervals: list[WorkingHourInterval]
+
+
+class WorkingHourSummary(TypedDict):
+    label: str
+    display: str
+
+
+def _normalize_working_hours(value: Any) -> list[dict[str, Any]]:
+    if not isinstance(value, list) or len(value) != 7:
+        raise ValueError("A configuração deve conter os sete dias da semana.")
+
+    normalized_days: list[dict[str, Any]] = []
+    seen_days: set[int] = set()
+    valid_minutes = set(range(0, 24 * 60, 30))
+    for day in value:
+        if not isinstance(day, dict):
+            raise ValueError("Um dia da semana possui formato inválido.")
+        day_of_week = day.get("day_of_week")
+        if (
+            not isinstance(day_of_week, int)
+            or isinstance(day_of_week, bool)
+            or day_of_week not in range(1, 8)
+            or day_of_week in seen_days
+        ):
+            raise ValueError("Os dias da semana são inválidos ou repetidos.")
+        if "intervals" not in day:
+            raise ValueError("Os intervalos de expediente são inválidos.")
+        intervals = day["intervals"]
+        if intervals is None:
+            intervals = []
+        if not isinstance(intervals, list):
+            raise ValueError("Os intervalos de expediente são inválidos.")
+
+        normalized_intervals: list[dict[str, int]] = []
+        previous_end = -1
+        for interval in intervals:
+            if not isinstance(interval, dict):
+                raise ValueError("Um intervalo de expediente possui formato inválido.")
+            start_minute = interval.get("start_minute")
+            end_minute = interval.get("end_minute")
+            if (
+                not isinstance(start_minute, int)
+                or isinstance(start_minute, bool)
+                or not isinstance(end_minute, int)
+                or isinstance(end_minute, bool)
+                or start_minute not in valid_minutes
+                or end_minute not in valid_minutes
+                or start_minute >= end_minute
+                or start_minute < previous_end
+            ):
+                raise ValueError("Os intervalos devem ser válidos e não sobrepostos.")
+            normalized_intervals.append(
+                {
+                    "start_minute": start_minute,
+                    "end_minute": end_minute,
+                }
+            )
+            previous_end = end_minute
+
+        seen_days.add(day_of_week)
+        normalized_days.append(
+            {
+                "day_of_week": day_of_week,
+                "label": WEEKDAY_LABELS[day_of_week - 1],
+                "intervals": normalized_intervals,
+            }
+        )
+
+    if seen_days != set(range(1, 8)):
+        raise ValueError("A configuração deve incluir cada dia da semana.")
+    return sorted(normalized_days, key=lambda day: day["day_of_week"])
+
+
+def _working_hours_api_payload(value: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    ordered_days = [
+        {
+            **day,
+            "intervals": sorted(
+                day.get("intervals", []),
+                key=lambda interval: interval.get("start_minute", -1),
+            ),
+        }
+        for day in value
+        if isinstance(day, dict)
+    ]
+    normalized_days = _normalize_working_hours(ordered_days)
+    return [
+        {
+            "day_of_week": day["day_of_week"],
+            "intervals": day["intervals"],
+        }
+        for day in normalized_days
+    ]
+
+
+def _working_hours_state(value: Any) -> list[WorkingHourDay]:
+    if isinstance(value, str):
+        try:
+            value = json.loads(value)
+        except json.JSONDecodeError as error:
+            raise ValueError("A configuração de expediente é inválida.") from error
+    if value is None or value == []:
+        value = [
+            {"day_of_week": day_of_week, "intervals": []}
+            for day_of_week in range(1, 8)
+        ]
+    return _reindex_working_hours_state(_normalize_working_hours(value))
+
+
+def _reindex_working_hours_state(
+    value: list[dict[str, Any]],
+) -> list[WorkingHourDay]:
+    return [
+        {
+            **day,
+            "intervals": [
+                {
+                    **interval,
+                    "index": index,
+                    "start_value": str(interval["start_minute"]),
+                    "end_value": str(interval["end_minute"]),
+                }
+                for index, interval in enumerate(day["intervals"])
+            ],
+        }
+        for day in sorted(value, key=lambda item: item["day_of_week"])
+    ]
+
+
+def _format_working_hour(minutes: int) -> str:
+    return f"{minutes // 60:02d}:{minutes % 60:02d}"
+
+
+def _next_working_hour_interval(
+    intervals: list[dict[str, Any]],
+) -> dict[str, int] | None:
+    existing = [
+        (interval["start_minute"], interval["end_minute"])
+        for interval in intervals
+    ]
+    candidate_starts = [
+        *range(9 * 60, 23 * 60 + 1, 30),
+        *range(0, 9 * 60, 30),
+    ]
+    for start_minute in candidate_starts:
+        end_minute = start_minute + 30
+        if end_minute > 23 * 60 + 30:
+            continue
+        if all(
+            start_minute >= existing_end or end_minute <= existing_start
+            for existing_start, existing_end in existing
+        ):
+            return {
+                "start_minute": start_minute,
+                "end_minute": end_minute,
+            }
+    return None
+
+
+def _split_working_hour_interval_for_pause(
+    intervals: list[dict[str, Any]],
+    pause_start_minute: int,
+    pause_end_minute: int,
+) -> list[dict[str, int]] | None:
+    if pause_start_minute >= pause_end_minute:
+        return None
+
+    updated_intervals: list[dict[str, int]] = []
+    split = False
+    for interval in intervals:
+        start_minute = interval["start_minute"]
+        end_minute = interval["end_minute"]
+        if (
+            not split
+            and start_minute < pause_start_minute
+            and pause_end_minute < end_minute
+        ):
+            updated_intervals.extend(
+                [
+                    {
+                        "start_minute": start_minute,
+                        "end_minute": pause_start_minute,
+                    },
+                    {
+                        "start_minute": pause_end_minute,
+                        "end_minute": end_minute,
+                    },
+                ]
+            )
+            split = True
+        else:
+            updated_intervals.append(
+                {
+                    "start_minute": start_minute,
+                    "end_minute": end_minute,
+                }
+            )
+    if not split:
+        return None
+    return sorted(updated_intervals, key=lambda item: item["start_minute"])
 
 
 def _today_in_barbershop_timezone() -> date:
@@ -79,9 +295,26 @@ def _calculate_appointment_time_slots(
     duration_minutes: int,
     appointments: list[dict[str, Any]],
     blocks: list[dict[str, Any]],
+    working_hours: list[dict[str, Any]],
     exclude_appointment_id: int = 0,
 ) -> list[dict[str, str]]:
-    periods = BARBERSHOP_HOURS.get(selected_date.weekday(), ())
+    day_of_week = selected_date.weekday() + 1
+    day_schedule = next(
+        (
+            day
+            for day in working_hours
+            if day.get("day_of_week") == day_of_week
+        ),
+        None,
+    )
+    periods = (
+        [
+            (interval["start_minute"], interval["end_minute"])
+            for interval in day_schedule["intervals"]
+        ]
+        if day_schedule is not None
+        else []
+    )
     if not periods or not professionals or duration_minutes <= 0:
         return []
 
@@ -146,6 +379,43 @@ def _calculate_appointment_time_slots(
     return slots
 
 
+def _appointment_fits_working_hours(
+    start_at: datetime,
+    duration_minutes: int,
+    working_hours: list[dict[str, Any]],
+) -> bool:
+    if (
+        duration_minutes <= 0
+        or start_at.minute % 30 != 0
+        or start_at.second != 0
+        or start_at.microsecond != 0
+    ):
+        return False
+    end_at = start_at + timedelta(minutes=duration_minutes)
+    if end_at.date() != start_at.date():
+        return False
+
+    day_of_week = start_at.weekday() + 1
+    day_schedule = next(
+        (
+            day
+            for day in working_hours
+            if day.get("day_of_week") == day_of_week
+        ),
+        None,
+    )
+    if day_schedule is None:
+        return False
+
+    start_minute = start_at.hour * 60 + start_at.minute
+    end_minute = end_at.hour * 60 + end_at.minute
+    return any(
+        start_minute >= interval["start_minute"]
+        and end_minute <= interval["end_minute"]
+        for interval in day_schedule["intervals"]
+    )
+
+
 MONTH_LABELS = (
     "Janeiro",
     "Fevereiro",
@@ -184,6 +454,68 @@ def _appointment_status_from_response(payload: Any, appointment_id: int) -> str:
     if status not in APPOINTMENT_STATUS_LABELS:
         raise ValueError("A API confirmou um status inválido.")
     return status
+
+
+def _appointment_payment_status_from_response(
+    payload: Any,
+    appointment_id: int,
+) -> str:
+    if isinstance(payload, dict) and isinstance(payload.get("data"), dict):
+        payload = payload["data"]
+    if not isinstance(payload, dict):
+        raise ValueError("A confirmação financeira do agendamento é inválida.")
+    try:
+        response_id = int(payload.get("appointment_id") or 0)
+    except (TypeError, ValueError) as error:
+        raise ValueError(
+            "O identificador do agendamento confirmado é inválido."
+        ) from error
+    if response_id != appointment_id:
+        raise ValueError("A API confirmou um agendamento diferente.")
+    status = str(payload.get("appointment_status") or "")
+    if status != "completed":
+        raise ValueError("A API não confirmou a conclusão do agendamento.")
+    return status
+
+
+def _completed_appointment_income_payload(
+    appointment: dict[str, Any],
+    occurred_at: datetime,
+) -> dict[str, Any] | None:
+    try:
+        appointment_id = int(appointment.get("id") or 0)
+        contact_id = int(appointment.get("contact_id") or 0)
+        amount = Decimal(str(appointment.get("total_price", "0")))
+        amount_in_cents = amount.quantize(Decimal("0.01"))
+    except (InvalidOperation, TypeError, ValueError) as error:
+        raise ValueError(
+            "Os dados do agendamento não permitem registrar a movimentação."
+        ) from error
+
+    if (
+        appointment_id <= 0
+        or contact_id <= 0
+        or not amount.is_finite()
+        or amount < 0
+        or amount != amount_in_cents
+    ):
+        raise ValueError(
+            "Os dados do agendamento não permitem registrar a movimentação."
+        )
+    if amount == 0:
+        return None
+
+    contact_name = str(appointment.get("contact_name") or "Cliente").strip()
+    title = f"Atendimento concluído - {contact_name}"[:100]
+    return {
+        "type": "income",
+        "title": title,
+        "detail": f"Agendamento #{appointment_id} concluído.",
+        "amount": str(amount_in_cents),
+        "occurred_at": occurred_at.isoformat(),
+        "contact_id": contact_id,
+        "appointment_id": appointment_id,
+    }
 
 
 def _format_service_duration(duration_minutes: int) -> str:
@@ -352,13 +684,13 @@ def _normalize_email(value: str) -> str:
 
 
 def _professional_items_from_response(result: Any) -> list[dict[str, Any]]:
-    if isinstance(result, dict):
-        result = (
-            result.get("items")
-            or result.get("data")
-            or result.get("professionals")
-            or result.get("users")
-        )
+    while isinstance(result, dict):
+        for key in ("items", "data", "professionals", "users"):
+            if key in result and result[key] is not None:
+                result = result[key]
+                break
+        else:
+            raise ValueError
     if not isinstance(result, list):
         raise ValueError
 
@@ -387,6 +719,20 @@ def _professional_items_from_response(result: Any) -> list[dict[str, Any]]:
             }
         )
     return items
+
+
+def _appointment_professionals_from_response(
+    result: Any,
+) -> list[dict[str, Any]]:
+    professionals = _professional_items_from_response(result)
+    appointment_professionals = []
+    for professional in professionals:
+        if professional["id"] <= 0 or not professional["name"].strip():
+            raise ValueError("A lista de profissionais retornada é inválida.")
+        appointment_professionals.append(
+            {"id": professional["id"], "name": professional["name"].strip()}
+        )
+    return appointment_professionals
 
 
 def _api_error_message(response: httpx.Response, fallback: str) -> str:
@@ -544,15 +890,18 @@ class AuthState(rx.State):
 
     display_name: str = ""
     profile_name: str = ""
+    barbershop_name: str = ""
     user_id: int = 0
     role: str = ""
     error_message: str = ""
+    identity_session_invalid: bool = False
     is_submitting: bool = False
     signup_error_message: str = ""
     signup_is_submitting: bool = False
     signup_owner_phone: str = ""
     signup_password_visible: bool = False
     registration_success_message: str = ""
+    professional_password_visible: bool = False
     professional_email: str = ""
     professional_phone: str = ""
     professional_cpf: str = ""
@@ -613,6 +962,7 @@ class AuthState(rx.State):
     contact_form_source: str = "WhatsApp"
     contact_form_notes: str = ""
     contact_form_first_contact_at: str = ""
+    contact_form_professional_id: str = "0"
     contact_editing_id: int = 0
     contact_search: str = ""
     contact_status_filter: str = "Ativos"
@@ -626,6 +976,16 @@ class AuthState(rx.State):
     appointment_blocks: list[dict[str, Any]] = []
     appointment_professionals: list[dict[str, Any]] = []
     appointment_contacts: list[dict[str, Any]] = []
+    appointment_working_hours: list[WorkingHourDay] = []
+    appointment_working_hours_loading: bool = True
+    appointment_working_hours_editing: bool = False
+    appointment_working_hours_saving: bool = False
+    appointment_working_hours_error: str = ""
+    appointment_working_hours_form_error: str = ""
+    appointment_working_hours_success_message: str = ""
+    appointment_working_hour_pause_day: int = 0
+    appointment_working_hour_pause_start: str = "720"
+    appointment_working_hour_pause_end: str = "780"
     appointment_loading: bool = False
     appointment_options_loading: bool = False
     appointment_error_message: str = ""
@@ -830,9 +1190,13 @@ class AuthState(rx.State):
         self._auth_token = ""
         self.display_name = ""
         self.profile_name = ""
+        self.barbershop_name = ""
         self.role = ""
         self.error_message = ""
+        self.identity_session_invalid = False
         self.is_submitting = False
+        self.registration_success_message = ""
+        self.professional_password_visible = False
         self.user_id = 0
         self.profile_email = ""
         self.profile_phone = ""
@@ -876,29 +1240,73 @@ class AuthState(rx.State):
         self.service_success_message = ""
         self.contact_success_message = ""
         self.appointment_success_message = ""
+        self.appointment_view = "calendar"
+        self.appointment_success_details = {
+            "contact_name": "",
+            "contact_phone": "",
+            "date_display": "",
+            "time_display": "",
+            "service_summary": "",
+            "total_display": "",
+            "professional_name": "",
+        }
+        self.appointment_working_hours_success_message = ""
         self.profile_form_success_message = ""
         self.profile_photo_success_message = ""
         self.professional_success_message = ""
         self.profile_editor_open = False
 
+    def _clear_registration_success_message(self):
+        self.registration_success_message = ""
+
+    def _tenant_title_script(self, page: str):
+        tenant_name = self.barbershop_name.strip() or "Barbearia"
+        title_literal = json.dumps(f"{page} | {tenant_name}")
+        title_literal = (
+            title_literal.replace("<", r"\u003c")
+            .replace(">", r"\u003e")
+            .replace("&", r"\u0026")
+        )
+        return rx.call_script(
+            "document.title = " + title_literal
+        )
+
     async def _load_identity(self) -> dict | None:
+        self.identity_session_invalid = False
+        self.error_message = ""
         response = await self._request("GET", "auth/me")
-        if response is None or response.status_code != 200:
+        if response is None:
+            return None
+        if response.status_code in (401, 403):
+            self.identity_session_invalid = True
+            self.error_message = "Sua sessão expirou ou não tem permissão para acessar esta conta."
+            return None
+        if response.status_code != 200:
+            self.error_message = _api_error_message(
+                response,
+                "Não foi possível validar sua sessão. Tente novamente.",
+            )
             return None
 
         try:
             profile = response.json()
         except ValueError:
+            self.error_message = "A resposta de autenticação é inválida. Tente novamente."
             return None
 
         if not isinstance(profile, dict):
+            self.error_message = "A resposta de autenticação é inválida. Tente novamente."
             return None
         profile = profile.get("user") if isinstance(profile.get("user"), dict) else profile
         profile = profile.get("data") if isinstance(profile.get("data"), dict) else profile
         if not isinstance(profile, dict):
+            self.error_message = "A resposta de autenticação é inválida. Tente novamente."
             return None
         self.display_name = str(_first_matching_value(profile, "name", "display_name") or "")
         self.profile_name = self.display_name
+        self.barbershop_name = str(
+            _first_matching_value(profile, "barbershop_name") or ""
+        ).strip()
         self.user_id = int(_first_matching_value(profile, "id", "user_id") or 0)
         self.role = str(_first_matching_value(profile, "role") or "").strip().lower()
         self.profile_email = str(_first_matching_value(profile, "email") or "")
@@ -910,6 +1318,45 @@ class AuthState(rx.State):
             _first_matching_value(profile, "profile_photo_url", "avatar_url") or ""
         )
         return profile
+
+    def _handle_identity_failure(self) -> bool:
+        if not self.identity_session_invalid:
+            return False
+        self._clear_session()
+        return True
+
+    def _apply_login_response(self, result: Any) -> dict | None:
+        if not isinstance(result, dict):
+            return None
+
+        token = _first_matching_value(
+            result,
+            "authToken",
+            "auth_token",
+            "token",
+            "access_token",
+            "accessToken",
+            "jwt",
+        )
+        user_payload = (
+            result.get("user") if isinstance(result.get("user"), dict) else {}
+        )
+        profile_payload = (
+            result.get("profile") if isinstance(result.get("profile"), dict) else {}
+        )
+        data_payload = (
+            result.get("data") if isinstance(result.get("data"), dict) else {}
+        )
+        login_profile = user_payload or profile_payload or data_payload or result
+
+        self._auth_token = str(token) if token not in (None, "") else ""
+        self.display_name = str(
+            _first_matching_value(login_profile, "name", "display_name") or ""
+        )
+        self.role = str(
+            _first_matching_value(login_profile, "role") or ""
+        ).strip().lower()
+        return login_profile if self._auth_token else None
 
     @rx.event
     async def login(self, form_data: dict[str, Any]):
@@ -935,33 +1382,16 @@ class AuthState(rx.State):
             self.is_submitting = False
             return
 
-        result = response.json()
-        if not isinstance(result, dict):
-            self.error_message = "Resposta do login inválida. Verifique o backend e a conta informada."
-            self.is_submitting = False
-            return
-
-        token = _first_matching_value(
-            result,
-            "authToken",
-            "auth_token",
-            "token",
-            "access_token",
-            "accessToken",
-            "jwt",
-        )
-        user_payload = result.get("user") if isinstance(result.get("user"), dict) else {}
-        profile_payload = result.get("profile") if isinstance(result.get("profile"), dict) else {}
-        data_payload = result.get("data") if isinstance(result.get("data"), dict) else {}
-        login_profile = user_payload or profile_payload or data_payload or result
-
-        self._auth_token = str(token) if token not in (None, "") else ""
-        self.display_name = str(_first_matching_value(login_profile, "name", "display_name") or "")
-        self.role = str(_first_matching_value(login_profile, "role") or "").strip().lower()
+        try:
+            login_profile = self._apply_login_response(response.json())
+        except ValueError:
+            login_profile = None
         self.is_submitting = False
 
-        if not self._auth_token:
-            self.error_message = "Resposta do login inválida. Verifique o backend e a conta informada."
+        if login_profile is None:
+            self.error_message = (
+                "Resposta do login inválida. Verifique o backend e a conta informada."
+            )
             return
 
         if _profile_requires_password_change(login_profile):
@@ -975,6 +1405,12 @@ class AuthState(rx.State):
         self.signup_is_submitting = False
         self.signup_owner_phone = ""
         self.signup_password_visible = False
+        self._clear_registration_success_message()
+
+    @rx.event
+    def clear_navigation_success_messages(self):
+        self.clear_menu_success_messages()
+        self._clear_registration_success_message()
 
     @rx.event
     def set_signup_owner_phone(self, value: str):
@@ -1028,51 +1464,78 @@ class AuthState(rx.State):
             },
             error_context="cadastro da barbearia",
         )
-        self.signup_is_submitting = False
         if response is None:
+            self.signup_is_submitting = False
             self.signup_error_message = (
                 self.error_message or "Não foi possível cadastrar a barbearia."
             )
             return
         if response.status_code != 200:
+            self.signup_is_submitting = False
             self.signup_error_message = _api_error_message(
                 response,
                 "Não foi possível cadastrar a barbearia. Confira os dados e tente novamente.",
             )
             return
 
-        self.registration_success_message = (
-            "Barbearia cadastrada com sucesso. Entre com o e-mail e a senha escolhidos."
+        login_response = await self._request(
+            "POST",
+            "auth/login",
+            {"email": owner_email, "password": owner_password},
+            error_context="login após o cadastro",
         )
-        yield rx.redirect("/login")
+        self.signup_is_submitting = False
+        login_profile = None
+        if login_response is not None and login_response.status_code == 200:
+            try:
+                login_profile = self._apply_login_response(login_response.json())
+            except ValueError:
+                login_profile = None
+
+        if login_profile is None:
+            self.registration_success_message = (
+                "Barbearia cadastrada com sucesso, mas não foi possível iniciar "
+                "a sessão automaticamente. Entre com o e-mail e a senha escolhidos."
+            )
+            yield rx.redirect("/login")
+            return
+
+        if _profile_requires_password_change(login_profile):
+            yield rx.redirect("/change-password")
+            return
+        yield rx.redirect("/app")
 
     @rx.event
     async def require_session(self):
         self.clear_menu_success_messages()
+        self._clear_registration_success_message()
         if not self._auth_token:
             return rx.redirect("/login")
         profile = await self._load_identity()
         if profile is None:
-            self._clear_session()
-            return rx.redirect("/login")
+            if self._handle_identity_failure():
+                return rx.redirect("/login")
+            return
         if _profile_requires_password_change(profile):
             return rx.redirect("/change-password")
 
     @rx.event
     async def require_overview_access(self):
         self.clear_menu_success_messages()
+        self._clear_registration_success_message()
         if not self._auth_token:
             yield rx.redirect("/login")
             return
         profile = await self._load_identity()
         if profile is None:
-            self._clear_session()
-            yield rx.redirect("/login")
+            if self._handle_identity_failure():
+                yield rx.redirect("/login")
             return
         if _profile_requires_password_change(profile):
             yield rx.redirect("/change-password")
             return
 
+        yield self._tenant_title_script("Visão geral")
         self.overview_financial_loading = True
         self.overview_financial_error = ""
         self.overview_transactions_loading = True
@@ -1267,8 +1730,15 @@ class AuthState(rx.State):
             return
         try:
             result = response.json()
-            if isinstance(result, dict) and isinstance(result.get("data"), list):
-                result = result["data"]
+            while isinstance(result, dict):
+                for key in ("items", "data", "appointments"):
+                    if key in result and result[key] is not None:
+                        result = result[key]
+                        break
+                else:
+                    raise ValueError(
+                        "A resposta não contém uma lista de agendamentos."
+                    )
             self.overview_appointments = upcoming_appointments(
                 result,
                 now,
@@ -1318,13 +1788,14 @@ class AuthState(rx.State):
     @rx.event
     async def require_finance_access(self):
         self.clear_menu_success_messages()
+        self._clear_registration_success_message()
         if not self._auth_token:
             yield rx.redirect("/login")
             return
         profile = await self._load_identity()
         if profile is None:
-            self._clear_session()
-            yield rx.redirect("/login")
+            if self._handle_identity_failure():
+                yield rx.redirect("/login")
             return
         if _profile_requires_password_change(profile):
             yield rx.redirect("/change-password")
@@ -1333,6 +1804,7 @@ class AuthState(rx.State):
             yield rx.redirect("/app")
             return
 
+        yield self._tenant_title_script("Financeiro")
         if not self.finance_dashboard_loaded:
             self.finance_kpis_loading = True
             self.finance_chart_loading = True
@@ -2112,6 +2584,7 @@ class AuthState(rx.State):
         await self._load_finance_dashboard()
         if linked_appointment_id:
             await self._load_appointments()
+            await self._load_overview_appointments()
 
     def _update_loaded_appointment_status(self, appointment_id: int, status: str):
         if status not in APPOINTMENT_STATUS_LABELS:
@@ -2376,12 +2849,14 @@ class AuthState(rx.State):
     @rx.event
     async def route_root(self):
         self.clear_menu_success_messages()
+        self._clear_registration_success_message()
         if not self._auth_token:
             return rx.redirect("/login")
         profile = await self._load_identity()
         if profile is None:
-            self._clear_session()
-            return rx.redirect("/login")
+            if self._handle_identity_failure():
+                return rx.redirect("/login")
+            return
         if _profile_requires_password_change(profile):
             return rx.redirect("/change-password")
         return rx.redirect("/app")
@@ -2389,34 +2864,47 @@ class AuthState(rx.State):
     @rx.event
     async def require_password_change(self):
         self.clear_menu_success_messages()
+        self._clear_registration_success_message()
         if not self._auth_token:
-            return rx.redirect("/login")
+            yield rx.redirect("/login")
+            return
         profile = await self._load_identity()
         if profile is None:
-            self._clear_session()
-            return rx.redirect("/login")
+            if self._handle_identity_failure():
+                yield rx.redirect("/login")
+            return
         if not _profile_requires_password_change(profile):
-            return rx.redirect("/app")
+            yield rx.redirect("/app")
+            return
+        yield self._tenant_title_script("Definir senha")
 
     @rx.event
-    async def require_admin(self):
+    async def require_team_access(self):
         self.clear_menu_success_messages()
+        self._clear_registration_success_message()
+        self.professional_password_visible = False
         if not self._auth_token:
-            return rx.redirect("/login")
+            yield rx.redirect("/login")
+            return
         profile = await self._load_identity()
         if profile is None:
-            self._clear_session()
-            return rx.redirect("/login")
+            if self._handle_identity_failure():
+                yield rx.redirect("/login")
+            return
         if _profile_requires_password_change(profile):
-            return rx.redirect("/change-password")
-        if str(profile.get("role") or "").strip().lower() != "admin":
-            return rx.redirect("/app")
+            yield rx.redirect("/change-password")
+            return
+        if self.role not in ("admin", "professional"):
+            yield rx.redirect("/app")
+            return
+        yield self._tenant_title_script("Equipe")
         await self.load_professionals()
 
     @rx.event
     async def load_professionals(self):
         self.professionals_loading = True
         self.professionals_error = ""
+        self.professionals = []
         response = await self._request(
             "GET",
             "auth/professionals",
@@ -2517,6 +3005,9 @@ class AuthState(rx.State):
         self.error_message = ""
         self.professional_success_message = ""
         yield
+        existing_professional_ids = {
+            professional["id"] for professional in self.professionals
+        }
         response = await self._request(
             "POST",
             "auth/professionals",
@@ -2529,9 +3020,22 @@ class AuthState(rx.State):
             },
         )
         if response is None:
-            self.is_submitting = False
-            return
-        if response.status_code not in (200, 201):
+            request_error = self.error_message
+            self.error_message = ""
+            await self.load_professionals()
+            creation_was_confirmed = any(
+                _normalize_email(professional.get("email", "")) == email
+                and professional.get("id") not in existing_professional_ids
+                for professional in self.professionals
+            )
+            if not creation_was_confirmed:
+                self.error_message = request_error or (
+                    "Não foi possível confirmar o cadastro do profissional. "
+                    "Verifique a equipe antes de tentar novamente."
+                )
+                self.is_submitting = False
+                return
+        elif response.status_code not in (200, 201):
             self.error_message = _api_error_message(
                 response,
                 "Não foi possível criar o profissional. Verifique o e-mail e os dados informados.",
@@ -2542,7 +3046,9 @@ class AuthState(rx.State):
         self.professional_email = ""
         self.professional_phone = ""
         self.professional_cpf = ""
-        await self.load_professionals()
+        self.professional_password_visible = False
+        if response is not None:
+            await self.load_professionals()
         self.professional_success_message = "Profissional cadastrado com sucesso."
         self.is_submitting = False
         yield rx.call_script("document.getElementById('professional-form').reset()")
@@ -2568,12 +3074,14 @@ class AuthState(rx.State):
     @rx.event
     async def require_profile_access(self):
         self.clear_menu_success_messages()
+        self._clear_registration_success_message()
         if not self._auth_token:
             return rx.redirect("/login")
         profile = await self._load_identity()
         if profile is None:
-            self._clear_session()
-            return rx.redirect("/login")
+            if self._handle_identity_failure():
+                return rx.redirect("/login")
+            return
         if _profile_requires_password_change(profile):
             return rx.redirect("/change-password")
         if self.role not in ("admin", "professional"):
@@ -2603,6 +3111,8 @@ class AuthState(rx.State):
             self.login_password_visible = not self.login_password_visible
         elif field == "signup":
             self.signup_password_visible = not self.signup_password_visible
+        elif field == "professional":
+            self.professional_password_visible = not self.professional_password_visible
         elif field == "temporary":
             self.temporary_password_visible = not self.temporary_password_visible
         elif field == "temporary_confirmation":
@@ -2929,13 +3439,14 @@ class AuthState(rx.State):
     @rx.event
     async def require_appointment_access(self):
         self.clear_menu_success_messages()
+        self._clear_registration_success_message()
         if not self._auth_token:
             yield rx.redirect("/login")
             return
         profile = await self._load_identity()
         if profile is None:
-            self._clear_session()
-            yield rx.redirect("/login")
+            if self._handle_identity_failure():
+                yield rx.redirect("/login")
             return
         if _profile_requires_password_change(profile):
             yield rx.redirect("/change-password")
@@ -2943,6 +3454,15 @@ class AuthState(rx.State):
         if self.role not in ("admin", "professional"):
             yield rx.redirect("/app")
             return
+        yield self._tenant_title_script("Agenda")
+        self.appointments = []
+        self.appointment_blocks = []
+        self.appointment_professionals = []
+        self.appointment_contacts = []
+        self.appointment_working_hours = []
+        self.appointment_error_message = ""
+        self.appointment_loading = True
+        self.appointment_working_hours_loading = True
         if not self.appointment_date:
             self.appointment_date = date.today().isoformat()
         if not self.appointment_calendar_month:
@@ -2951,6 +3471,8 @@ class AuthState(rx.State):
         self.appointment_options_loading = True
         yield
         await self._load_appointment_options()
+        if self.appointment_error_message:
+            return
         await self._load_appointments()
 
     @rx.var
@@ -2965,8 +3487,75 @@ class AuthState(rx.State):
         ]
 
     @rx.var
+    def contact_professional_options(self) -> list[dict[str, Any]]:
+        active_professionals = [
+            professional
+            for professional in self.professionals
+            if professional.get("role") == "Profissional"
+        ]
+        options = [
+            {
+                "value": "0",
+                "label": "Sem responsável (admin)",
+                "disabled": False,
+            }
+        ]
+        options.extend(
+            {
+                "value": str(professional["id"]),
+                "label": professional["name"],
+                "disabled": False,
+            }
+            for professional in active_professionals
+        )
+        current_owner_id = self.contact_form_professional_id
+        if current_owner_id != "0" and not any(
+            option["value"] == current_owner_id for option in options
+        ):
+            options.append(
+                {
+                    "value": current_owner_id,
+                    "label": "Responsável inativo (manter)",
+                    "disabled": False,
+                }
+            )
+        return options
+
+    @rx.var
+    def appointment_working_hours_summary(self) -> list[WorkingHourSummary]:
+        return [
+            {
+                "label": day["label"],
+                "display": (
+                    ", ".join(
+                        f'{_format_working_hour(interval["start_minute"])}–'
+                        f'{_format_working_hour(interval["end_minute"])}'
+                        for interval in day["intervals"]
+                    )
+                    or "Fechado"
+                ),
+            }
+            for day in self.appointment_working_hours
+        ]
+
+    @rx.var
+    def appointment_working_hour_time_options(self) -> list[dict[str, Any]]:
+        return [
+            {
+                "value": str(minutes),
+                "label": _format_working_hour(minutes),
+                "disabled": False,
+            }
+            for minutes in range(0, 24 * 60, 30)
+        ]
+
+    @rx.var
     def professional_page_count(self) -> int:
         return max(1, ceil(len(self.professionals) / self.professional_page_size))
+
+    @rx.var
+    def can_view_team(self) -> bool:
+        return self.role in ("admin", "professional")
 
     @rx.var
     def professional_page_items(self) -> list[dict[str, Any]]:
@@ -3209,6 +3798,7 @@ class AuthState(rx.State):
             duration_minutes,
             self.appointments,
             self.appointment_blocks,
+            self.appointment_working_hours,
         )
 
     @rx.var
@@ -3234,6 +3824,7 @@ class AuthState(rx.State):
             duration_minutes,
             self.appointments,
             self.appointment_blocks,
+            self.appointment_working_hours,
             self.appointment_editing_id,
         )
         return [
@@ -3260,6 +3851,318 @@ class AuthState(rx.State):
     @rx.var
     def has_appointment_detail(self) -> bool:
         return self.appointment_selected_detail.get("id", 0) > 0
+
+    @rx.event
+    def start_working_hours_edit(self):
+        if self.role != "admin":
+            return
+        self.appointment_working_hours_editing = True
+        self.appointment_working_hour_pause_day = 0
+        self.appointment_working_hours_form_error = ""
+        self.appointment_working_hours_success_message = ""
+
+    @rx.event
+    async def cancel_working_hours_edit(self):
+        self.appointment_working_hours_editing = False
+        self.appointment_working_hour_pause_day = 0
+        self.appointment_working_hours_form_error = ""
+        await self._load_appointment_working_hours()
+
+    @rx.event
+    def add_working_hour_interval(self, day_of_week: int):
+        if self.role != "admin" or not self.appointment_working_hours_editing:
+            return
+        days = [
+            {
+                **day,
+                "intervals": [dict(interval) for interval in day["intervals"]],
+            }
+            for day in self.appointment_working_hours
+        ]
+        day = next(
+            (item for item in days if item["day_of_week"] == day_of_week),
+            None,
+        )
+        if day is None:
+            self.appointment_working_hours_form_error = "Selecione um dia válido."
+            return
+        interval = _next_working_hour_interval(day["intervals"])
+        if interval is None:
+            self.appointment_working_hours_form_error = (
+                "Não há mais intervalos de 30 minutos disponíveis neste dia."
+            )
+            return
+        day["intervals"] = sorted(
+            [*day["intervals"], interval],
+            key=lambda item: item["start_minute"],
+        )
+        self.appointment_working_hours = _reindex_working_hours_state(days)
+        self.appointment_working_hours_form_error = ""
+
+    @rx.event
+    def start_working_hour_pause(self, day_of_week: int):
+        if self.role != "admin" or not self.appointment_working_hours_editing:
+            return
+        day = next(
+            (
+                item
+                for item in self.appointment_working_hours
+                if item["day_of_week"] == day_of_week
+            ),
+            None,
+        )
+        if day is None:
+            self.appointment_working_hours_form_error = "Selecione um dia válido."
+            return
+        if not day["intervals"]:
+            self.appointment_working_hours_form_error = (
+                "Defina primeiro um horário de funcionamento para este dia."
+            )
+            return
+        for current, following in zip(day["intervals"], day["intervals"][1:]):
+            if (
+                current["end_minute"] <= 12 * 60
+                and following["start_minute"] >= 13 * 60
+            ):
+                self.appointment_working_hours_form_error = (
+                    "Este dia já possui uma pausa no horário de almoço."
+                )
+                return
+
+        self.appointment_working_hour_pause_day = day_of_week
+        self.appointment_working_hour_pause_start = str(12 * 60)
+        self.appointment_working_hour_pause_end = str(13 * 60)
+        self.appointment_working_hours_form_error = ""
+
+    @rx.event
+    def set_working_hour_pause_time(self, field: str, value: str):
+        if self.role != "admin" or not self.appointment_working_hours_editing:
+            return
+        if self.appointment_working_hour_pause_day not in range(1, 8):
+            self.appointment_working_hours_form_error = (
+                "Selecione primeiro o dia da pausa."
+            )
+            return
+        try:
+            minute_value = int(value)
+        except ValueError:
+            self.appointment_working_hours_form_error = (
+                "Selecione um horário válido para a pausa."
+            )
+            return
+        if minute_value not in range(0, 24 * 60, 30):
+            self.appointment_working_hours_form_error = (
+                "Os horários da pausa devem usar intervalos de 30 minutos."
+            )
+            return
+        if field == "start":
+            self.appointment_working_hour_pause_start = value
+        elif field == "end":
+            self.appointment_working_hour_pause_end = value
+        else:
+            self.appointment_working_hours_form_error = (
+                "O campo da pausa selecionado é inválido."
+            )
+            return
+        self.appointment_working_hours_form_error = ""
+
+    @rx.event
+    def apply_working_hour_pause(self, day_of_week: int):
+        if self.role != "admin" or not self.appointment_working_hours_editing:
+            return
+        if self.appointment_working_hour_pause_day != day_of_week:
+            self.appointment_working_hours_form_error = (
+                "Selecione a pausa do dia correto."
+            )
+            return
+        try:
+            pause_start = int(self.appointment_working_hour_pause_start)
+            pause_end = int(self.appointment_working_hour_pause_end)
+        except ValueError:
+            self.appointment_working_hours_form_error = (
+                "Selecione horários válidos para a pausa."
+            )
+            return
+        valid_minutes = range(0, 24 * 60, 30)
+        if (
+            pause_start not in valid_minutes
+            or pause_end not in valid_minutes
+            or pause_start >= pause_end
+        ):
+            self.appointment_working_hours_form_error = (
+                "Informe uma pausa válida em intervalos de 30 minutos."
+            )
+            return
+
+        days = [
+            {
+                **day,
+                "intervals": [dict(interval) for interval in day["intervals"]],
+            }
+            for day in self.appointment_working_hours
+        ]
+        day = next(
+            (item for item in days if item["day_of_week"] == day_of_week),
+            None,
+        )
+        if day is None:
+            self.appointment_working_hours_form_error = "Selecione um dia válido."
+            return
+        updated_intervals = _split_working_hour_interval_for_pause(
+            day["intervals"],
+            pause_start,
+            pause_end,
+        )
+        if updated_intervals is None:
+            self.appointment_working_hours_form_error = (
+                "A pausa deve ficar dentro de um único período de funcionamento, "
+                "com expediente antes e depois."
+            )
+            return
+        day["intervals"] = updated_intervals
+        self.appointment_working_hours = _reindex_working_hours_state(days)
+        self.appointment_working_hour_pause_day = 0
+        self.appointment_working_hours_form_error = ""
+
+    @rx.event
+    def cancel_working_hour_pause(self):
+        if self.role != "admin" or not self.appointment_working_hours_editing:
+            return
+        self.appointment_working_hour_pause_day = 0
+        self.appointment_working_hours_form_error = ""
+
+    @rx.event
+    def remove_working_hour_interval(self, day_of_week: int, interval_index: int):
+        if self.role != "admin" or not self.appointment_working_hours_editing:
+            return
+        days = [
+            {
+                **day,
+                "intervals": [dict(interval) for interval in day["intervals"]],
+            }
+            for day in self.appointment_working_hours
+        ]
+        day = next(
+            (item for item in days if item["day_of_week"] == day_of_week),
+            None,
+        )
+        if day is None or interval_index not in range(len(day["intervals"])):
+            self.appointment_working_hours_form_error = (
+                "O intervalo selecionado não está mais disponível."
+            )
+            return
+        day["intervals"].pop(interval_index)
+        self.appointment_working_hours = _reindex_working_hours_state(days)
+        self.appointment_working_hours_form_error = ""
+
+    @rx.event
+    def set_working_hour_interval(
+        self,
+        day_of_week: int,
+        interval_index: int,
+        field: str,
+        value: str,
+    ):
+        if self.role != "admin" or not self.appointment_working_hours_editing:
+            return
+        if field not in ("start_minute", "end_minute"):
+            self.appointment_working_hours_form_error = (
+                "O campo do intervalo selecionado é inválido."
+            )
+            return
+        try:
+            minute_value = int(value)
+        except ValueError:
+            self.appointment_working_hours_form_error = (
+                "Selecione um horário válido."
+            )
+            return
+        days = [
+            {
+                **day,
+                "intervals": [dict(interval) for interval in day["intervals"]],
+            }
+            for day in self.appointment_working_hours
+        ]
+        day = next(
+            (item for item in days if item["day_of_week"] == day_of_week),
+            None,
+        )
+        if day is None or interval_index not in range(len(day["intervals"])):
+            self.appointment_working_hours_form_error = (
+                "O intervalo selecionado não está mais disponível."
+            )
+            return
+        day["intervals"][interval_index][field] = minute_value
+        day["intervals"].sort(key=lambda item: item["start_minute"])
+        self.appointment_working_hours = _reindex_working_hours_state(days)
+        self.appointment_working_hours_form_error = ""
+
+    @rx.event
+    async def save_working_hours(self):
+        if self.role != "admin":
+            return
+        if self.appointment_working_hours_saving:
+            return
+        if self.appointment_working_hour_pause_day:
+            self.appointment_working_hours_form_error = (
+                "Aplique ou cancele a pausa antes de salvar o expediente."
+            )
+            return
+        try:
+            payload = _working_hours_api_payload(
+                self.appointment_working_hours
+            )
+        except (TypeError, ValueError):
+            self.appointment_working_hours_form_error = (
+                "Revise os horários: não pode haver intervalos vazios, "
+                "sobrepostos ou fora da grade de 30 minutos."
+            )
+            return
+
+        self.appointment_working_hours_saving = True
+        self.appointment_working_hours_form_error = ""
+        yield
+        response = await self._request(
+            "PATCH",
+            "appointments/working-hours",
+            {"weekly_hours": payload},
+            error_context="horários da barbearia",
+        )
+        self.appointment_working_hours_saving = False
+        if response is None or response.status_code != 200:
+            self.appointment_working_hours_form_error = (
+                self.error_message
+                if response is None
+                else _api_error_message(
+                    response,
+                    "Não foi possível salvar os horários da barbearia.",
+                )
+            )
+            return
+        try:
+            result = response.json()
+            if not isinstance(result, dict):
+                raise ValueError("A resposta do expediente é inválida.")
+            self.appointment_working_hours = _working_hours_state(
+                result.get("weekly_hours")
+            )
+        except (TypeError, ValueError):
+            self.appointment_working_hours_form_error = (
+                "A API salvou os horários, mas retornou uma configuração inválida."
+            )
+            return
+        self.appointment_working_hours_error = ""
+        self.appointment_error_message = ""
+        self.appointment_working_hours_editing = False
+        self.appointment_working_hour_pause_day = 0
+        self.appointment_working_hours_success_message = (
+            "Horários da barbearia salvos."
+        )
+        saved_working_hours = self.appointment_working_hours
+        if not await self._load_appointment_working_hours():
+            self.appointment_working_hours = saved_working_hours
+        await self._load_appointments()
 
     @rx.event
     async def set_appointment_date(self, value: str):
@@ -3320,11 +4223,57 @@ class AuthState(rx.State):
     def set_appointment_status_filter(self, value: str):
         self.appointment_status_filter = value or "Não cancelados"
 
+    async def _load_appointment_working_hours(self) -> bool:
+        self.appointment_working_hours_loading = True
+        self.appointment_working_hours_error = ""
+        self.appointment_working_hours_form_error = ""
+        response = await self._request(
+            "GET",
+            "appointments/working-hours",
+            error_context="horários da barbearia",
+        )
+        if response is None or response.status_code != 200:
+            self.appointment_working_hours_error = (
+                self.error_message
+                if response is None
+                else _api_error_message(
+                    response,
+                    "Não foi possível carregar os horários da barbearia.",
+                )
+            )
+            self.appointment_working_hours = []
+            self.appointment_working_hours_loading = False
+            return False
+        try:
+            result = response.json()
+            if not isinstance(result, dict):
+                raise ValueError("A configuração de expediente é inválida.")
+            self.appointment_working_hours = _working_hours_state(
+                result.get("weekly_hours")
+            )
+        except (TypeError, ValueError):
+            self.appointment_working_hours_error = (
+                "A API retornou horários inválidos. A semana foi carregada fechada; "
+                "defina e salve os horários novamente."
+            )
+            self.appointment_working_hours = _working_hours_state(None)
+            self.appointment_working_hours_loading = False
+            return False
+        self.appointment_working_hours_loading = False
+        return True
+
     async def _load_appointment_options(self):
         self.appointment_error_message = ""
+        self.appointment_professionals = []
+        self.appointment_contacts = []
+        if not await self._load_appointment_working_hours():
+            self.appointment_error_message = self.appointment_working_hours_error
+            self.appointment_options_loading = False
+            return
+
         professionals_response = await self._request(
             "GET",
-            "appointments/professionals",
+            "auth/professionals",
             error_context="equipe",
         )
         if professionals_response is None or professionals_response.status_code != 200:
@@ -3339,14 +4288,22 @@ class AuthState(rx.State):
             self.appointment_options_loading = False
             return
         try:
-            professionals = professionals_response.json()
-            if not isinstance(professionals, list):
-                raise ValueError("A lista de profissionais retornada é inválida.")
-            self.appointment_professionals = [
-                {"id": int(item["id"]), "name": str(item["name"]).strip()}
-                for item in professionals
-                if isinstance(item, dict) and item.get("name")
-            ]
+            professionals = _appointment_professionals_from_response(
+                professionals_response.json()
+            )
+            if self.role == "professional":
+                professionals = [
+                    professional
+                    for professional in professionals
+                    if professional["id"] == self.user_id
+                ]
+                if not professionals:
+                    self.appointment_error_message = (
+                        "Seu perfil não foi encontrado na equipe da barbearia."
+                    )
+                    self.appointment_options_loading = False
+                    return
+            self.appointment_professionals = professionals
             if self.appointment_professionals and not self.appointment_professional_id:
                 self.appointment_professional_id = self.appointment_professionals[0]["id"]
         except (KeyError, TypeError, ValueError):
@@ -3358,9 +4315,9 @@ class AuthState(rx.State):
 
         contacts_response = await self._request(
             "GET",
-            "contacts",
+            "appointments/contacts",
             error_context="clientes",
-            query_params={"status": "active", "page": 1, "page_size": 50},
+            query_params={"page": 1, "page_size": 50},
         )
         if contacts_response is None or contacts_response.status_code != 200:
             self.appointment_error_message = (
@@ -3389,10 +4346,9 @@ class AuthState(rx.State):
                 page += 1
                 page_response = await self._request(
                     "GET",
-                    "contacts",
+                    "appointments/contacts",
                     error_context="clientes",
                     query_params={
-                        "status": "active",
                         "page": page,
                         "page_size": 50,
                     },
@@ -3506,6 +4462,9 @@ class AuthState(rx.State):
                     raise ValueError("A lista de serviços de um agendamento está inválida.")
                 contact_id = int(item["contact_id"])
                 professional_id = int(item["professional_id"])
+                total_price = Decimal(str(item.get("total_price", "0")))
+                if not total_price.is_finite() or total_price < 0:
+                    raise ValueError("O total do agendamento é inválido.")
                 appointments.append(
                     {
                         "id": int(item["id"]),
@@ -3559,6 +4518,7 @@ class AuthState(rx.State):
                         "status": str(item["status"]),
                         "status_display": APPOINTMENT_STATUS_LABELS[str(item["status"])],
                         "notes": str(item.get("notes") or ""),
+                        "total_price": str(total_price),
                         "service_ids": [
                             int(service["id"])
                             for service in snapshots
@@ -3583,7 +4543,7 @@ class AuthState(rx.State):
                             if isinstance(service, dict)
                         ),
                         "total_display": _format_service_price(
-                            Decimal(str(item.get("total_price", "0")))
+                            total_price
                         ),
                     }
                 )
@@ -3647,6 +4607,11 @@ class AuthState(rx.State):
 
     @rx.event
     async def refresh_appointments(self):
+        if self.appointment_error_message:
+            self.appointment_options_loading = True
+            await self._load_appointment_options()
+            if self.appointment_error_message:
+                return
         await self._load_appointments()
 
     @rx.event
@@ -4189,15 +5154,10 @@ class AuthState(rx.State):
             int(service["duration_minutes"]) for service in selected_services
         )
         service_end = start_at + timedelta(minutes=duration_minutes)
-        opening_periods = BARBERSHOP_HOURS.get(start_at.weekday(), ())
-        start_minutes = start_at.hour * 60 + start_at.minute
-        end_minutes = service_end.hour * 60 + service_end.minute
-        if (
-            start_at.minute % 30 != 0
-            or not any(
-                start_minutes >= opening_start and end_minutes <= opening_end
-                for opening_start, opening_end in opening_periods
-            )
+        if not _appointment_fits_working_hours(
+            start_at,
+            duration_minutes,
+            self.appointment_working_hours,
         ):
             self.appointment_form_error = (
                 "O serviço não cabe no expediente ou no intervalo selecionado."
@@ -4314,13 +5274,52 @@ class AuthState(rx.State):
             return
         self.appointment_success_message = ""
         self.appointment_error_message = ""
-        response = await self._request(
-            "PATCH",
-            f"appointments/{appointment_id}/status",
-            {"status": status},
-            error_context="agenda",
+        income_payload = None
+        if status == "completed":
+            appointment = next(
+                (
+                    item
+                    for item in self.appointments
+                    if item["id"] == appointment_id
+                ),
+                None,
+            )
+            if appointment is None:
+                await self._load_appointments()
+                self.appointment_error_message = (
+                    "Atualize a agenda antes de concluir este atendimento."
+                )
+                return
+            try:
+                income_payload = _completed_appointment_income_payload(
+                    appointment,
+                    datetime.now(BARBERSHOP_TIMEZONE),
+                )
+            except ValueError as error:
+                print(f"[appointments] Invalid completion data: {error}")
+                self.appointment_error_message = (
+                    "Não foi possível registrar o atendimento no financeiro."
+                )
+                return
+
+        if income_payload is not None:
+            response = await self._request(
+                "POST",
+                "finance/transactions",
+                income_payload,
+                error_context="financeiro",
+            )
+        else:
+            response = await self._request(
+                "PATCH",
+                f"appointments/{appointment_id}/status",
+                {"status": status},
+                error_context="agenda",
+            )
+        accepted_status_codes = (
+            (200, 201) if income_payload is not None else (200,)
         )
-        if response is None or response.status_code != 200:
+        if response is None or response.status_code not in accepted_status_codes:
             self.appointment_error_message = (
                 self.error_message
                 if response is None
@@ -4328,17 +5327,28 @@ class AuthState(rx.State):
             )
             return
         try:
-            saved_status = _appointment_status_from_response(
-                response.json(),
-                appointment_id,
-            )
+            if income_payload is not None:
+                saved_status = _appointment_payment_status_from_response(
+                    response.json(),
+                    appointment_id,
+                )
+            else:
+                saved_status = _appointment_status_from_response(
+                    response.json(),
+                    appointment_id,
+                )
         except (TypeError, ValueError) as error:
             print(f"[appointments] Invalid status response: {error}")
             self.appointment_selected_detail = {}
             await self._load_appointments()
+            await self._load_overview_appointments()
             if not self.appointment_error_message:
                 self.appointment_error_message = (
-                    "Não foi possível confirmar o status salvo. A agenda foi atualizada."
+                    "O atendimento pode ter sido concluído, mas não foi possível "
+                    "confirmar o registro financeiro."
+                    if income_payload is not None
+                    else "Não foi possível confirmar o status salvo. A agenda foi "
+                    "atualizada."
                 )
             return
         self._update_loaded_appointment_status(appointment_id, saved_status)
@@ -4346,19 +5356,24 @@ class AuthState(rx.State):
             self.appointment_success_message = ""
             self.appointment_selected_detail = {}
             await self._load_appointments()
+            await self._load_overview_appointments()
             if not self.appointment_error_message:
                 self.appointment_error_message = (
                     "O status foi alterado por outra operação. A tela foi atualizada "
                     "com o valor salvo."
                 )
             return
-        self.appointment_success_message = (
-            "Atendimento cancelado."
-            if saved_status == "cancelled"
-            else "Status do atendimento atualizado."
-        )
+        if saved_status == "cancelled":
+            self.appointment_success_message = "Atendimento cancelado."
+        elif income_payload is not None:
+            self.appointment_success_message = (
+                "Atendimento concluído e registrado no financeiro."
+            )
+        else:
+            self.appointment_success_message = "Status do atendimento atualizado."
         self.appointment_selected_detail = {}
         await self._load_appointments()
+        await self._load_overview_appointments()
 
     @rx.var
     def filtered_services(self) -> list[dict[str, Any]]:
@@ -4500,13 +5515,14 @@ class AuthState(rx.State):
     @rx.event
     async def require_service_access(self):
         self.contact_success_message = ""
+        self._clear_registration_success_message()
         if not self._auth_token:
             yield rx.redirect("/login")
             return
         profile = await self._load_identity()
         if profile is None:
-            self._clear_session()
-            yield rx.redirect("/login")
+            if self._handle_identity_failure():
+                yield rx.redirect("/login")
             return
         if _profile_requires_password_change(profile):
             yield rx.redirect("/change-password")
@@ -4516,6 +5532,7 @@ class AuthState(rx.State):
             if str(profile.get("role") or "").strip().lower() == "admin"
             else "Ativos"
         )
+        yield self._tenant_title_script("Serviços")
         self.service_loading = True
         yield
         await self._load_services()
@@ -4627,6 +5644,24 @@ class AuthState(rx.State):
                         "id": int(item["id"]),
                         "name": str(item["name"]).strip(),
                         "phone": _format_contact_phone(str(item["phone"]).strip()),
+                        "professional_id": int(item.get("professional_id") or 0),
+                        "professional_display": (
+                            "Sua carteira"
+                            if int(item.get("professional_id") or 0) == self.user_id
+                            else (
+                                next(
+                                    (
+                                        professional["name"]
+                                        for professional in self.professionals
+                                        if professional["id"]
+                                        == int(item.get("professional_id") or 0)
+                                    ),
+                                    "Responsável inativo",
+                                )
+                                if int(item.get("professional_id") or 0)
+                                else "Sem responsável (admin)"
+                            )
+                        ),
                         "cpf": _format_cpf(str(item.get("cpf") or "")),
                         "birth_date": str(item.get("birth_date") or ""),
                         "email": str(item.get("email") or ""),
@@ -4660,13 +5695,14 @@ class AuthState(rx.State):
     @rx.event
     async def require_contact_access(self):
         self.service_success_message = ""
+        self._clear_registration_success_message()
         if not self._auth_token:
             yield rx.redirect("/login")
             return
         profile = await self._load_identity()
         if profile is None:
-            self._clear_session()
-            yield rx.redirect("/login")
+            if self._handle_identity_failure():
+                yield rx.redirect("/login")
             return
         if _profile_requires_password_change(profile):
             yield rx.redirect("/change-password")
@@ -4676,8 +5712,11 @@ class AuthState(rx.State):
             yield rx.redirect("/app")
             return
         self.contact_status_filter = "Todos os status" if role == "admin" else "Ativos"
+        yield self._tenant_title_script("Clientes e contatos")
         self.contact_loading = True
         yield
+        if role == "admin":
+            await self.load_professionals()
         await self._load_contacts()
 
     @rx.event
@@ -4695,6 +5734,7 @@ class AuthState(rx.State):
         self.contact_form_source = "WhatsApp"
         self.contact_form_notes = ""
         self.contact_form_first_contact_at = ""
+        self.contact_form_professional_id = "0"
         self.contact_form_error = ""
         self.contact_form_open = True
 
@@ -4716,6 +5756,7 @@ class AuthState(rx.State):
         )
         self.contact_form_notes = contact["notes"]
         self.contact_form_first_contact_at = contact["first_contact_at"][:10]
+        self.contact_form_professional_id = str(contact["professional_id"])
         self.contact_form_error = ""
         self.contact_form_open = True
 
@@ -4755,6 +5796,10 @@ class AuthState(rx.State):
     @rx.event
     def set_contact_form_first_contact_at(self, value: str):
         self.contact_form_first_contact_at = value
+
+    @rx.event
+    def set_contact_form_professional(self, value: str):
+        self.contact_form_professional_id = value
 
     @rx.event
     def request_contact_status(self, contact_id: int, status: str):
@@ -4854,6 +5899,23 @@ class AuthState(rx.State):
             "notes": notes,
             "first_contact_at": first_contact_at,
         }
+        if self.role == "admin":
+            try:
+                professional_id = int(
+                    form_data.get(
+                        "professional_id",
+                        self.contact_form_professional_id,
+                    )
+                )
+            except (TypeError, ValueError):
+                self.contact_form_error = "Selecione um responsável válido."
+                self.is_submitting = False
+                return
+            if professional_id < 0:
+                self.contact_form_error = "Selecione um responsável válido."
+                self.is_submitting = False
+                return
+            payload["professional_id"] = professional_id
         path = (
             f"contacts/{self.contact_editing_id}"
             if self.contact_editing_id
@@ -5069,7 +6131,15 @@ class AuthState(rx.State):
         await self._load_services()
 
 
-def _brand() -> rx.Component:
+def _tenant_display_name() -> rx.Component:
+    return rx.cond(
+        AuthState.barbershop_name != "",
+        AuthState.barbershop_name,
+        "Barbearia",
+    )
+
+
+def _brand(tenant_name: Any = "Lotus Barber") -> rx.Component:
     return rx.hstack(
         rx.box(
             rx.el.svg(
@@ -5086,7 +6156,10 @@ def _brand() -> rx.Component:
             aria_hidden="true",
         ),
         rx.vstack(
-            rx.text("Lotus Barber", class_name="pc-brand-name"),
+            rx.text(
+                rx.cond(tenant_name != "", tenant_name, "Barbearia"),
+                class_name="pc-brand-name",
+            ),
             rx.text("GESTÃO DA BARBEARIA", class_name="pc-brand-caption"),
             spacing="0",
             align="start",
@@ -5533,7 +6606,7 @@ def change_password_page() -> rx.Component:
 def _app_sidebar(active_route: str) -> rx.Component:
     return rx.el.aside(
         rx.box(class_name="pc-sidebar-stripe", aria_hidden="true"),
-        _brand(),
+        _brand(tenant_name=AuthState.barbershop_name),
         rx.text("MENU PRINCIPAL", class_name="pc-sidebar-label"),
         rx.vstack(
             rx.link(
@@ -5585,7 +6658,7 @@ def _app_sidebar(active_route: str) -> rx.Component:
                 ),
             ),
             rx.cond(
-                AuthState.role == "admin",
+                AuthState.can_view_team,
                 rx.link(
                     _nav_icon("users-round"),
                     rx.text("Equipe"),
@@ -5680,7 +6753,10 @@ def _app_shell(content: rx.Component, active_route: str) -> rx.Component:
         rx.box(
             rx.el.header(
                 rx.hstack(
-                    rx.text("Lotus Barber", class_name="pc-breadcrumb"),
+                    rx.text(
+                        _tenant_display_name(),
+                        class_name="pc-breadcrumb",
+                    ),
                     rx.text("/", class_name="pc-breadcrumb-divider"),
                     rx.text(
                         (
@@ -5710,6 +6786,7 @@ def _app_shell(content: rx.Component, active_route: str) -> rx.Component:
                 class_name="pc-topbar",
             ),
             rx.box(
+                _message(),
                 content,
                 id="pc-main-content",
                 tab_index=-1,
@@ -5840,16 +6917,18 @@ def create_professional_page() -> rx.Component:
                 spacing="2",
             ),
             rx.vstack(
-                rx.el.label("Senha", html_for="professional-password", class_name="pc-field-label"),
-                rx.input(
-                    id="professional-password",
+                rx.el.label(
+                    "Senha",
+                    html_for="professional-password",
+                    class_name="pc-field-label",
+                ),
+                _password_input(
+                    field_id="professional-password",
                     name="password",
-                    type="password",
+                    visibility_key="professional",
+                    visible=AuthState.professional_password_visible,
                     placeholder="Mínimo de 8 caracteres, uma letra e um número",
-                    required=True,
                     min_length=8,
-                    class_name="pc-input",
-                    width="100%",
                 ),
                 class_name="pc-field",
                 align="stretch",
@@ -5892,16 +6971,31 @@ def create_professional_page() -> rx.Component:
     )
     content = rx.vstack(
         rx.text("GESTÃO DA EQUIPE", class_name="pc-eyebrow"),
-        rx.heading("Cadastrar profissional", class_name="pc-page-title"),
+        rx.heading(
+            rx.cond(
+                AuthState.role == "admin",
+                "Cadastrar profissional",
+                "Equipe da barbearia",
+            ),
+            class_name="pc-page-title",
+        ),
         rx.text(
-            "Todos os campos são obrigatórios. Defina a senha de acesso do profissional.",
+            rx.cond(
+                AuthState.role == "admin",
+                "Todos os campos são obrigatórios. Defina a senha de acesso do profissional.",
+                "Profissionais da sua barbearia.",
+            ),
             class_name="pc-page-description",
         ),
         rx.el.section(
             rx.hstack(
-                rx.el.section(
-                    professional_form,
-                    class_name="pc-form-panel pc-team-form-panel",
+                rx.cond(
+                    AuthState.role == "admin",
+                    rx.el.section(
+                        professional_form,
+                        class_name="pc-form-panel pc-team-form-panel",
+                    ),
+                    rx.fragment(),
                 ),
                 rx.el.section(
                     rx.vstack(
@@ -5963,7 +7057,11 @@ def create_professional_page() -> rx.Component:
                 align="start",
                 width="100%",
                 spacing="5",
-                class_name="pc-team-columns",
+                class_name=rx.cond(
+                    AuthState.role == "admin",
+                    "pc-team-columns",
+                    "pc-team-columns pc-team-columns-readonly",
+                ),
             ),
         ),
         width="100%",
@@ -6446,6 +7544,15 @@ def _contact_row(contact: Any) -> rx.Component:
         rx.vstack(
             rx.text(contact["name"], class_name="pc-service-name"),
             rx.text(contact["phone"], class_name="pc-service-description"),
+            rx.cond(
+                AuthState.role == "admin",
+                rx.text(
+                    "Responsável: ",
+                    contact["professional_display"],
+                    class_name="pc-service-readonly",
+                ),
+                rx.fragment(),
+            ),
             spacing="1",
             align="start",
             class_name="pc-service-primary",
@@ -6627,6 +7734,38 @@ def _contact_form() -> rx.Component:
                         class_name="pc-field",
                         align="stretch",
                         spacing="2",
+                    ),
+                    rx.cond(
+                        AuthState.role == "admin",
+                        rx.vstack(
+                            rx.el.label(
+                                "Responsável pelo cliente",
+                                html_for="contact-professional",
+                                class_name="pc-field-label",
+                            ),
+                            _appointment_select(
+                                AuthState.contact_professional_options,
+                                AuthState.contact_form_professional_id,
+                                AuthState.set_contact_form_professional,
+                                "Responsável pelo cliente",
+                                "pc-service-filter",
+                                "contact-professional",
+                            ),
+                            rx.cond(
+                                AuthState.professionals_error != "",
+                                rx.text(
+                                    AuthState.professionals_error,
+                                    role="alert",
+                                    class_name="pc-service-error-text",
+                                ),
+                                rx.fragment(),
+                            ),
+                            class_name="pc-field",
+                            align="stretch",
+                            spacing="2",
+                            width="100%",
+                        ),
+                        rx.fragment(),
                     ),
                     rx.hstack(
                         rx.vstack(
@@ -8340,6 +9479,268 @@ def _appointment_form() -> rx.Component:
     )
 
 
+def _working_hours_summary_row(day: Any) -> rx.Component:
+    return rx.hstack(
+        rx.text(day["label"], class_name="pc-service-name"),
+        rx.text(day["display"], class_name="pc-service-description"),
+        justify="between",
+        width="100%",
+        class_name="pc-appointment-working-hours-row",
+    )
+
+
+def _working_hours_editor_day(day: Any) -> rx.Component:
+    return rx.vstack(
+        rx.text(day["label"], class_name="pc-service-name"),
+        rx.cond(
+            day["intervals"].length() == 0,
+            rx.text("Fechado", class_name="pc-service-description"),
+            rx.fragment(),
+        ),
+        rx.foreach(
+            day["intervals"],
+            lambda interval: rx.hstack(
+                _appointment_select(
+                    AuthState.appointment_working_hour_time_options,
+                    interval["start_value"],
+                    AuthState.set_working_hour_interval(
+                        day["day_of_week"],
+                        interval["index"],
+                        "start_minute",
+                    ),
+                    f"Horário de abertura de {day['label']}",
+                    "pc-service-filter",
+                ),
+                rx.text("até", class_name="pc-service-description"),
+                _appointment_select(
+                    AuthState.appointment_working_hour_time_options,
+                    interval["end_value"],
+                    AuthState.set_working_hour_interval(
+                        day["day_of_week"],
+                        interval["index"],
+                        "end_minute",
+                    ),
+                    f"Horário de fechamento de {day['label']}",
+                    "pc-service-filter",
+                ),
+                rx.button(
+                    "Remover",
+                    type="button",
+                    on_click=AuthState.remove_working_hour_interval(
+                        day["day_of_week"],
+                        interval["index"],
+                    ),
+                    class_name="pc-service-action pc-service-toggle",
+                ),
+                align="center",
+                spacing="2",
+                width="100%",
+                class_name="pc-appointment-working-hours-interval",
+            ),
+        ),
+        rx.button(
+            "+ Adicionar período",
+            type="button",
+            on_click=AuthState.add_working_hour_interval(day["day_of_week"]),
+            class_name="pc-service-action pc-service-edit",
+        ),
+        rx.button(
+            "+ Adicionar pausa",
+            type="button",
+            on_click=AuthState.start_working_hour_pause(day["day_of_week"]),
+            disabled=day["intervals"].length() == 0,
+            class_name="pc-service-action pc-service-edit",
+        ),
+        rx.cond(
+            AuthState.appointment_working_hour_pause_day == day["day_of_week"],
+            rx.vstack(
+                rx.text(
+                    "Pausa padrão de 12:00 a 13:00. Ajuste os horários se necessário.",
+                    class_name="pc-service-description",
+                ),
+                rx.hstack(
+                    rx.vstack(
+                        rx.el.label(
+                            "Início da pausa",
+                            html_for="working-hour-pause-start",
+                            class_name="pc-field-label",
+                        ),
+                        _appointment_select(
+                            AuthState.appointment_working_hour_time_options,
+                            AuthState.appointment_working_hour_pause_start,
+                            AuthState.set_working_hour_pause_time("start"),
+                            f"Início da pausa de {day['label']}",
+                            "pc-service-filter",
+                            element_id="working-hour-pause-start",
+                        ),
+                        class_name="pc-field",
+                        align="stretch",
+                        spacing="1",
+                    ),
+                    rx.text("até", class_name="pc-service-description"),
+                    rx.vstack(
+                        rx.el.label(
+                            "Fim da pausa",
+                            html_for="working-hour-pause-end",
+                            class_name="pc-field-label",
+                        ),
+                        _appointment_select(
+                            AuthState.appointment_working_hour_time_options,
+                            AuthState.appointment_working_hour_pause_end,
+                            AuthState.set_working_hour_pause_time("end"),
+                            f"Fim da pausa de {day['label']}",
+                            "pc-service-filter",
+                            element_id="working-hour-pause-end",
+                        ),
+                        class_name="pc-field",
+                        align="stretch",
+                        spacing="1",
+                    ),
+                    width="100%",
+                    align="end",
+                    spacing="2",
+                    class_name="pc-appointment-working-hours-interval",
+                ),
+                rx.hstack(
+                    rx.button(
+                        "Aplicar pausa",
+                        type="button",
+                        on_click=AuthState.apply_working_hour_pause(
+                            day["day_of_week"]
+                        ),
+                        class_name="pc-button pc-button-primary",
+                    ),
+                    rx.button(
+                        "Cancelar",
+                        type="button",
+                        on_click=AuthState.cancel_working_hour_pause,
+                        class_name="pc-button pc-button-secondary",
+                    ),
+                    spacing="2",
+                ),
+                align="stretch",
+                spacing="2",
+                width="100%",
+            ),
+            rx.fragment(),
+        ),
+        align="stretch",
+        spacing="2",
+        width="100%",
+        class_name="pc-appointment-working-hours-day",
+    )
+
+
+def _appointment_working_hours_panel() -> rx.Component:
+    return rx.el.section(
+        rx.vstack(
+            rx.hstack(
+                rx.vstack(
+                    rx.heading("Horário da barbearia", class_name="pc-catalog-title"),
+                    rx.text(
+                        "Expediente semanal compartilhado por toda a equipe.",
+                        class_name="pc-catalog-description",
+                    ),
+                    align="start",
+                    spacing="1",
+                ),
+                rx.spacer(),
+                rx.cond(
+                    (AuthState.role == "admin")
+                    & ~AuthState.appointment_working_hours_editing,
+                    rx.button(
+                        "Editar horários",
+                        type="button",
+                        on_click=AuthState.start_working_hours_edit,
+                        class_name="pc-button pc-button-secondary",
+                    ),
+                    rx.fragment(),
+                ),
+                width="100%",
+                align="center",
+            ),
+            rx.cond(
+                AuthState.appointment_working_hours_loading,
+                rx.text("Carregando horários...", role="status", class_name="pc-service-empty"),
+                rx.cond(
+                    AuthState.appointment_working_hours_editing,
+                    rx.vstack(
+                        rx.foreach(
+                            AuthState.appointment_working_hours,
+                            _working_hours_editor_day,
+                        ),
+                        rx.cond(
+                            AuthState.appointment_working_hours_form_error != "",
+                            rx.text(
+                                AuthState.appointment_working_hours_form_error,
+                                role="alert",
+                                class_name="pc-service-error-text",
+                            ),
+                            rx.fragment(),
+                        ),
+                        rx.hstack(
+                            rx.button(
+                                "Cancelar",
+                                type="button",
+                                on_click=AuthState.cancel_working_hours_edit,
+                                disabled=AuthState.appointment_working_hours_saving,
+                                class_name="pc-button pc-button-secondary",
+                            ),
+                            rx.button(
+                                rx.cond(
+                                    AuthState.appointment_working_hours_saving,
+                                    "Salvando...",
+                                    "Salvar horários",
+                                ),
+                                type="button",
+                                on_click=AuthState.save_working_hours,
+                                disabled=AuthState.appointment_working_hours_saving,
+                                class_name="pc-button pc-button-primary",
+                            ),
+                            spacing="3",
+                        ),
+                        align="stretch",
+                        spacing="3",
+                        width="100%",
+                    ),
+                    rx.vstack(
+                        rx.foreach(
+                            AuthState.appointment_working_hours_summary,
+                            _working_hours_summary_row,
+                        ),
+                        align="stretch",
+                        spacing="2",
+                        width="100%",
+                    ),
+                ),
+            ),
+            rx.cond(
+                AuthState.appointment_working_hours_success_message != "",
+                rx.text(
+                    AuthState.appointment_working_hours_success_message,
+                    role="status",
+                    class_name="pc-service-success",
+                ),
+                rx.fragment(),
+            ),
+            rx.cond(
+                AuthState.appointment_working_hours_error != "",
+                rx.text(
+                    AuthState.appointment_working_hours_error,
+                    role="alert",
+                    class_name="pc-service-error-text",
+                ),
+                rx.fragment(),
+            ),
+            align="stretch",
+            spacing="3",
+            width="100%",
+        ),
+        class_name="pc-service-form-panel pc-appointment-working-hours",
+        width="100%",
+    )
+
+
 def appointment_page() -> rx.Component:
     content = rx.vstack(
         rx.box(
@@ -8421,6 +9822,7 @@ def appointment_page() -> rx.Component:
             ),
             rx.fragment(),
         ),
+        _appointment_working_hours_panel(),
         rx.cond(
             AuthState.appointment_error_message != "",
             rx.hstack(
@@ -8880,48 +10282,48 @@ def register_pages(app: rx.App):
     app.add_page(
         change_password_page,
         route="/change-password",
-        title="Definir senha | Lotus Barber",
+        title="Definir senha",
         on_load=AuthState.require_password_change,
     )
     app.add_page(
         app_page,
         route="/app",
-        title="Barbearia | Lotus Barber",
+        title="Visão geral",
         on_load=AuthState.require_overview_access,
     )
     app.add_page(
         create_professional_page,
         route="/team/new",
-        title="Cadastrar profissional | Lotus Barber",
-        on_load=AuthState.require_admin,
+        title="Equipe",
+        on_load=AuthState.require_team_access,
     )
     app.add_page(
         service_catalog_page,
         route="/services",
-        title="Serviços | Lotus Barber",
+        title="Serviços",
         on_load=AuthState.require_service_access,
     )
     app.add_page(
         contact_catalog_page,
         route="/contacts",
-        title="Clientes e contatos | Lotus Barber",
+        title="Clientes e contatos",
         on_load=AuthState.require_contact_access,
     )
     app.add_page(
         appointment_page,
         route="/appointments",
-        title="Agenda | Lotus Barber",
+        title="Agenda",
         on_load=AuthState.require_appointment_access,
     )
     app.add_page(
         finance_page,
         route="/financeiro",
-        title="Financeiro | Lotus Barber",
+        title="Financeiro",
         on_load=AuthState.require_finance_access,
     )
     app.add_page(
         login_page,
         route="/",
-        title="Entrar | Lotus Barber",
-        on_load=AuthState.clear_menu_success_messages,
+        title="Entrar",
+        on_load=AuthState.clear_navigation_success_messages,
     )

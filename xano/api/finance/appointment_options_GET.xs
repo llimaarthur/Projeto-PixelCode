@@ -21,6 +21,28 @@ query "finance/appointment-options" verb=GET {
       output = ["id", "role"]
     } as $actor
 
+    conditional {
+      if ($input.contact_id != null) {
+        db.get contact {
+          field_name = "id"
+          field_value = $input.contact_id
+          output = ["id", "barbershop_id", "professional_id"]
+        } as $contact
+
+        precondition (
+          $contact != null
+          && (
+            $contact.barbershop_id == $access_check.barbershop_id
+            || ($access_check.include_legacy_rows == true && $contact.barbershop_id == null)
+          )
+          && ($actor.role == "admin" || $contact.professional_id == $auth.id)
+        ) {
+          error_type = "inputerror"
+          error = "Cliente não encontrado."
+        }
+      }
+    }
+
     db.query appointment {
       where = (
         ($db.appointment.status == "pending" || $db.appointment.status == "confirmed")

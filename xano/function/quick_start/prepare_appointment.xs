@@ -6,6 +6,7 @@ function "Quick Start/prepare_appointment" {
     json service_ids
     timestamp start_at
     int barbershop_id
+    text actor_role
     bool include_legacy_rows?=false
     int exclude_appointment_id?
   }
@@ -14,7 +15,7 @@ function "Quick Start/prepare_appointment" {
     db.get contact {
       field_name = "id"
       field_value = $input.contact_id
-      output = ["id", "name", "phone", "status", "barbershop_id"]
+      output = ["id", "name", "phone", "status", "barbershop_id", "professional_id"]
     } as $contact
 
     precondition ($contact != null) {
@@ -60,6 +61,17 @@ function "Quick Start/prepare_appointment" {
     ) {
       error_type = "inputerror"
       error = "O cliente e o profissional devem pertencer à mesma barbearia."
+    }
+
+    precondition (
+      $input.actor_role == "admin"
+      || (
+        $input.actor_role == "professional"
+        && $contact.professional_id == $input.professional_id
+      )
+    ) {
+      error_type = "accessdenied"
+      error = "O cliente não está disponível para este profissional."
     }
 
     precondition ($input.service_ids != null && ($input.service_ids|count) > 0) {
@@ -138,10 +150,17 @@ function "Quick Start/prepare_appointment" {
       value = $input.start_at|add_secs_to_timestamp:($total_duration * 60)
     }
 
+    function.run "Quick Start/get_barbershop_working_hours" {
+      input = {
+        barbershop_id: $input.barbershop_id
+      }
+    } as $schedule
+
     function.run "Quick Start/validate_working_interval" {
       input = {
         start_at: $input.start_at
         end_at: $end_at
+        weekly_hours: $schedule.weekly_hours
       }
     } as $working_interval_check
 

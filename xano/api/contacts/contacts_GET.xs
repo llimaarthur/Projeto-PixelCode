@@ -26,8 +26,11 @@ query "contacts" verb=GET {
 
     db.query contact {
       where = (
-        $db.contact.barbershop_id == $role_check.barbershop_id
-        || ($role_check.include_legacy_rows == true && $db.contact.barbershop_id == null)
+        (
+          $db.contact.barbershop_id == $role_check.barbershop_id
+          || ($role_check.include_legacy_rows == true && $db.contact.barbershop_id == null)
+        )
+        && ($role_check.role == "admin" || $db.contact.professional_id == $auth.id)
       )
       sort = {contact.name: "asc", contact.id: "asc"}
       return = {type: "list"}

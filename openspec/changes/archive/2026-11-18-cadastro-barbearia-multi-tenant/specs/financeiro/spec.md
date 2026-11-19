@@ -25,3 +25,9 @@ pertencem à mesma barbearia.
 - **WHEN** uma pessoa tenta consultar, editar ou estornar lançamento de outro
   tenant
 - **THEN** o backend rejeita a operação sem revelar valores, autor ou histórico
+
+#### Scenario: Concluir um agendamento com valor
+
+- **WHEN** um agendamento confirmado é concluído
+- **THEN** uma receita ativa com o valor do agendamento é registrada uma única
+  vez e vinculada ao cliente e ao agendamento

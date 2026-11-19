@@ -14,6 +14,7 @@ query "contacts/{contact_id}" verb=PATCH {
     }
     text notes? filters=trim
     timestamp first_contact_at
+    int professional_id?
   }
 
   stack {
@@ -38,6 +39,24 @@ query "contacts/{contact_id}" verb=PATCH {
       error_type = "inputerror"
       error = "Contato não encontrado."
     }
+
+    precondition (
+      $role_check.role == "admin"
+      || $existing_contact.professional_id == $auth.id
+    ) {
+      error_type = "accessdenied"
+      error = "Contato não encontrado."
+    }
+
+    function.run "Quick Start/resolve_contact_owner" {
+      input = {
+        actor_id: $auth.id
+        barbershop_id: $role_check.barbershop_id
+        include_legacy_rows: $role_check.include_legacy_rows
+        requested_professional_id: $input.professional_id
+        existing_professional_id: $existing_contact.professional_id
+      }
+    } as $contact_owner
 
     var $normalized_phone {
       value = $input.phone
@@ -152,6 +171,7 @@ query "contacts/{contact_id}" verb=PATCH {
       field_value = $input.contact_id
       data = {
         updated_at       : "now"
+        professional_id  : $contact_owner.professional_id
         name             : $input.name
         phone            : $normalized_phone
         phone_normalized : $normalized_phone

@@ -62,6 +62,125 @@ class SignupPhoneTests(unittest.TestCase):
         self.assertEqual(state.payload["owner_phone"], "11920398470")
         self.assertEqual(state.signup_error_message, "test sentinel")
 
+    def test_signup_authenticates_the_owner_and_redirects_to_the_app(self):
+        class SignupState:
+            signup_is_submitting = False
+            signup_owner_phone = "(11) 92039-8470"
+            signup_error_message = ""
+            registration_success_message = ""
+            error_message = ""
+            _auth_token = ""
+            display_name = ""
+            role = ""
+            responses = [
+                httpx.Response(200, json={"success": True}),
+                httpx.Response(
+                    200,
+                    json={
+                        "authToken": "new-session-token",
+                        "user": {"name": "Ana", "role": "admin"},
+                    },
+                ),
+            ]
+
+            def __init__(self):
+                self.requests = []
+
+            async def _request(self, method, path, payload, error_context):
+                self.requests.append((method, path, payload))
+                return self.responses.pop(0)
+
+            def _apply_login_response(self, result):
+                return AuthState._apply_login_response(self, result)
+
+        state = SignupState()
+        form_data = {
+            "barbershop_name": "Barbearia teste",
+            "owner_name": "Ana",
+            "owner_email": "ANA@example.com",
+            "owner_phone": "(11) 92039-8470",
+            "owner_password": "Gabriel123",
+        }
+
+        async def submit():
+            return [
+                event
+                async for event in AuthState.signup_barbershop.fn(state, form_data)
+            ]
+
+        events = asyncio.run(submit())
+
+        self.assertEqual(
+            [request[1] for request in state.requests],
+            ["auth/signup", "auth/login"],
+        )
+        self.assertEqual(
+            state.requests[1][2],
+            {"email": "ana@example.com", "password": "Gabriel123"},
+        )
+        self.assertEqual(state._auth_token, "new-session-token")
+        self.assertEqual(state.display_name, "Ana")
+        self.assertEqual(state.role, "admin")
+        self.assertEqual(events[-1].args[0][1]._var_value, "/app")
+        self.assertEqual(state.registration_success_message, "")
+
+    def test_signup_falls_back_to_login_if_auto_authentication_fails(self):
+        for login_response in (
+            httpx.Response(401, json={"message": "Unauthorized"}),
+            httpx.Response(200, json={"success": True}),
+        ):
+            with self.subTest(login_status=login_response.status_code):
+                class SignupState:
+                    signup_is_submitting = False
+                    signup_owner_phone = "(11) 92039-8470"
+                    signup_error_message = ""
+                    registration_success_message = ""
+                    error_message = ""
+                    _auth_token = ""
+                    display_name = ""
+                    role = ""
+                    responses = [
+                        httpx.Response(200, json={"success": True}),
+                        login_response,
+                    ]
+
+                    def __init__(self):
+                        self.requests = []
+
+                    async def _request(self, method, path, payload, error_context):
+                        self.requests.append((method, path, payload))
+                        return self.responses.pop(0)
+
+                    def _apply_login_response(self, result):
+                        return AuthState._apply_login_response(self, result)
+
+                state = SignupState()
+                form_data = {
+                    "barbershop_name": "Barbearia teste",
+                    "owner_name": "Ana",
+                    "owner_email": "ana@example.com",
+                    "owner_phone": "(11) 92039-8470",
+                    "owner_password": "Gabriel123",
+                }
+
+                async def submit():
+                    return [
+                        event
+                        async for event in AuthState.signup_barbershop.fn(
+                            state, form_data
+                        )
+                    ]
+
+                events = asyncio.run(submit())
+
+                self.assertEqual(
+                    [request[1] for request in state.requests],
+                    ["auth/signup", "auth/login"],
+                )
+                self.assertEqual(state._auth_token, "")
+                self.assertIn("cadastrada", state.registration_success_message)
+                self.assertEqual(events[-1].args[0][1]._var_value, "/login")
+
     def test_signup_phone_rejects_non_phone_content_and_invalid_ddd(self):
         rejected = (
             "abcdefghijk",

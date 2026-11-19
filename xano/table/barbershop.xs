@@ -11,6 +11,7 @@ table barbershop {
     text migration_key?
     bool migration_completed?=false
     bool legacy_compatibility?=false
+    json weekly_hours?
   }
 
   index = [

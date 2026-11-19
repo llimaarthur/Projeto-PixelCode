@@ -50,6 +50,21 @@ query "finance/transactions/{transaction_id}/cancel" verb=PATCH {
       error = "Você só pode estornar movimentações registradas por você. Administradores podem estornar qualquer lançamento."
     }
 
+    conditional {
+      if ($actor.role == "professional" && $existing_transaction.contact_id != null) {
+        db.get contact {
+          field_name = "id"
+          field_value = $existing_transaction.contact_id
+          output = ["id", "professional_id"]
+        } as $contact
+
+        precondition ($contact != null && $contact.professional_id == $auth.id) {
+          error_type = "accessdenied"
+          error = "Você só pode estornar movimentações vinculadas aos seus clientes."
+        }
+      }
+    }
+
     precondition (($input.reason|strlen) >= 3 && ($input.reason|strlen) <= 250) {
       error_type = "inputerror"
       error = "Informe um motivo para o estorno, com até 250 caracteres."

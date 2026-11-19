@@ -32,6 +32,14 @@ query "contacts/{contact_id}/status" verb=PATCH {
       error = "Contato não encontrado."
     }
 
+    precondition (
+      $role_check.role == "admin"
+      || $existing_contact.professional_id == $auth.id
+    ) {
+      error_type = "accessdenied"
+      error = "Contato não encontrado."
+    }
+
     db.edit contact {
       field_name = "id"
       field_value = $input.contact_id

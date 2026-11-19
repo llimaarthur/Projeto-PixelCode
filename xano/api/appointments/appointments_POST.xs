@@ -31,6 +31,7 @@ query "appointments" verb=POST {
         service_ids: $input.service_ids
         start_at: $input.start_at
         barbershop_id: $scope_check.barbershop_id
+        actor_role: $scope_check.role
         include_legacy_rows: $scope_check.include_legacy_rows
       }
     } as $prepared

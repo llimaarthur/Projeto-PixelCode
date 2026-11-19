@@ -32,13 +32,6 @@ query "appointments/blocks" verb=POST {
       error = "O fim do bloqueio deve ser posterior ao início."
     }
 
-    function.run "Quick Start/validate_working_interval" {
-      input = {
-        start_at: $input.start_at
-        end_at: $input.end_at
-      }
-    } as $working_interval_check
-
     var $end_minute {
       value = ($input.end_at|format_timestamp:"i":"America/Sao_Paulo")|to_int
     }
@@ -67,6 +60,20 @@ query "appointments/blocks" verb=POST {
         target_professional_id: $input.professional_id
       }
     } as $scope_check
+
+    function.run "Quick Start/get_barbershop_working_hours" {
+      input = {
+        barbershop_id: $scope_check.barbershop_id
+      }
+    } as $schedule
+
+    function.run "Quick Start/validate_working_interval" {
+      input = {
+        start_at: $input.start_at
+        end_at: $input.end_at
+        weekly_hours: $schedule.weekly_hours
+      }
+    } as $working_interval_check
 
     conditional {
       if ($input.professional_id == 0) {

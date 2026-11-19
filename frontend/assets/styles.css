@@ -95,11 +95,15 @@ input {
 }
 
 .pc-brand-name {
+  max-width: 190px;
+  overflow: hidden;
   color: var(--pc-text);
   font-size: 15px;
   font-weight: 700;
   letter-spacing: -0.02em;
   line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .pc-brand-caption {
@@ -556,6 +560,15 @@ input {
   flex-shrink: 0;
 }
 
+.pc-sidebar .pc-brand {
+  max-width: 100%;
+  min-width: 0;
+}
+
+.pc-sidebar .pc-brand > div {
+  min-width: 0;
+}
+
 .pc-sidebar .pc-brand-name {
   font-size: 16px;
 }
@@ -773,6 +786,13 @@ input {
 .pc-breadcrumb-divider {
   color: #858b96;
   font-size: 11px;
+}
+
+.pc-breadcrumb {
+  max-width: min(45vw, 260px);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .pc-breadcrumb-current {
@@ -1804,6 +1824,27 @@ input {
   background: linear-gradient(145deg, #1c2027, #181a20 76%);
 }
 
+.pc-appointment-working-hours {
+  max-width: 900px;
+}
+
+.pc-appointment-working-hours-row {
+  gap: 12px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--pc-border);
+}
+
+.pc-appointment-working-hours-day {
+  padding: 12px;
+  border: 1px solid var(--pc-border);
+  border-radius: 12px;
+  background: #171a20;
+}
+
+.pc-appointment-working-hours-interval {
+  flex-wrap: wrap;
+}
+
 .pc-appointment-content :focus-visible {
   outline: 3px solid var(--pc-blue-hover);
   outline-offset: -1px;
@@ -1827,6 +1868,10 @@ input {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(320px, 0.9fr);
   align-items: stretch;
+}
+
+.pc-team-columns-readonly {
+  grid-template-columns: minmax(0, 1fr);
 }
 
 .pc-team-form-panel,

@@ -8,6 +8,9 @@ table contact {
     int barbershop_id? {
       table = "barbershop"
     }
+    int professional_id? {
+      table = "user"
+    }
     text name filters=trim
     text phone filters=trim
     text phone_normalized filters=trim
@@ -28,6 +31,7 @@ table contact {
   index = [
     {type: "primary", field: [{name: "id"}]}
     {type: "btree", field: [{name: "barbershop_id", op: "asc"}]}
+    {type: "btree", field: [{name: "professional_id", op: "asc"}]}
     {type: "btree", field: [{name: "phone_normalized", op: "asc"}]}
     {type: "btree", field: [{name: "cpf_normalized", op: "asc"}]}
     {type: "btree", field: [{name: "status", op: "asc"}]}

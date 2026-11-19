@@ -1,4 +1,4 @@
-// Returns the active team members to an administrator.
+// Returns the active team members to administrators and professionals in their barbershop.
 query "auth/professionals" verb=GET {
   api_group = "Authentication"
   auth = "user"
@@ -8,7 +8,7 @@ query "auth/professionals" verb=GET {
 
   stack {
     function.run "Quick Start/enforce_role" {
-      input = {user_id: $auth.id, required_role: "admin"}
+      input = {user_id: $auth.id, required_role: "professional"}
     } as $role_check
 
     db.query user {

@@ -66,6 +66,7 @@ query "appointments/{appointment_id}" verb=PATCH {
         start_at: $input.start_at
         exclude_appointment_id: $input.appointment_id
         barbershop_id: $existing_scope_check.barbershop_id
+        actor_role: $target_scope_check.role
         include_legacy_rows: $existing_scope_check.include_legacy_rows
       }
     } as $prepared

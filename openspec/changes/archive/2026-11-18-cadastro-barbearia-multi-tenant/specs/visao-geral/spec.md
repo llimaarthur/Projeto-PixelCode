@@ -18,3 +18,9 @@ combinar dados de tenants diferentes.
 - **WHEN** usuários de duas barbearias consultam a Visão geral
 - **THEN** cada usuário recebe métricas independentes, sem dados ou totais do
   outro tenant
+
+#### Scenario: Exibir agendamentos confirmados próximos
+
+- **WHEN** existe um agendamento futuro confirmado dentro dos próximos 30 dias
+- **THEN** o agendamento aparece na lista de próximos atendimentos da Visão
+  geral

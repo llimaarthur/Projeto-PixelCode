@@ -62,7 +62,7 @@ query "finance/transactions" verb=POST {
         db.get contact {
           field_name = "id"
           field_value = $input.contact_id
-          output = ["id", "name", "status", "barbershop_id"]
+          output = ["id", "name", "status", "barbershop_id", "professional_id"]
         } as $contact
 
         precondition ($contact != null && $contact.status == "active") {
@@ -76,6 +76,14 @@ query "finance/transactions" verb=POST {
         ) {
           error_type = "inputerror"
           error = "Selecione um cliente ativo."
+        }
+
+        precondition (
+          $access_check.role == "admin"
+          || $contact.professional_id == $auth.id
+        ) {
+          error_type = "accessdenied"
+          error = "Movimentações vinculadas a clientes só podem ser registradas pelo responsável."
         }
 
         var.update $contact_name_snapshot {

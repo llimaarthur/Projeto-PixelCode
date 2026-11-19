@@ -70,6 +70,7 @@ function "Quick Start/authorize_professional_scope" {
   response = {
     barbershop_id: $access_scope.barbershop_id
     include_legacy_rows: $access_scope.include_legacy_rows
+    role: $access_scope.role
   }
   guid = "oJm-O2VoyNCN-6h1vhvfcNaK_9g"
 }

@@ -121,6 +121,15 @@ query "auth/signup" verb=POST {
             name: $input.barbershop_name
             status: "active"
             migration_key: $barbershop_migration_key
+            weekly_hours: [
+              {day_of_week: 1, intervals: []}
+              {day_of_week: 2, intervals: []}
+              {day_of_week: 3, intervals: []}
+              {day_of_week: 4, intervals: []}
+              {day_of_week: 5, intervals: []}
+              {day_of_week: 6, intervals: []}
+              {day_of_week: 7, intervals: []}
+            ]
           }
         } as $barbershop
 

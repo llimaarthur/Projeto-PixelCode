@@ -1,4 +1,9 @@
-## ADDED Requirements
+# cadastro-barbearia Specification
+
+## Purpose
+TBD - created by archiving change cadastro-barbearia-multi-tenant. Update Purpose after archive.
+
+## Requirements
 
 ### Requirement: Cadastro público de barbearia e proprietário
 
@@ -15,7 +20,10 @@ de tenant, papel ou status. A resposta SHALL NOT conter senha, hash ou segredo.
 - **WHEN** uma pessoa envia nome da barbearia e dados válidos do proprietário
 - **THEN** o backend cria uma barbearia e sua conta proprietária administradora,
   sem associar o usuário ou os dados a outra barbearia
-- **AND** a interface confirma o cadastro e encaminha a pessoa para o login
+- **AND** a interface autentica a conta recém-criada e encaminha a pessoa para a
+  área da aplicação
+- **AND** se a autenticação automática falhar, a interface informa que a
+  barbearia foi criada e encaminha a pessoa para o login
 
 #### Scenario: Login com a senha definida no cadastro
 

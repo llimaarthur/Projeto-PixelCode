@@ -13,12 +13,22 @@ query "contacts" verb=POST {
     }
     text notes? filters=trim
     timestamp first_contact_at
+    int professional_id?
   }
 
   stack {
     function.run "Quick Start/enforce_role" {
       input = {user_id: $auth.id, required_role: "professional"}
     } as $role_check
+
+    function.run "Quick Start/resolve_contact_owner" {
+      input = {
+        actor_id: $auth.id
+        barbershop_id: $role_check.barbershop_id
+        include_legacy_rows: $role_check.include_legacy_rows
+        requested_professional_id: $input.professional_id
+      }
+    } as $contact_owner
 
     var $normalized_phone {
       value = $input.phone
@@ -131,6 +141,7 @@ query "contacts" verb=POST {
         created_at        : "now"
         updated_at        : "now"
         barbershop_id     : $role_check.barbershop_id
+        professional_id   : $contact_owner.professional_id
         name              : $input.name
         phone             : $normalized_phone
         phone_normalized  : $normalized_phone

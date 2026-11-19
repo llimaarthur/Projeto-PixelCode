@@ -1,8 +1,11 @@
+import asyncio
 import unittest
-from datetime import datetime
+from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
-from frontend.auth_state import _contacts_page_from_response
+import httpx
+
+from frontend.auth_state import AuthState, _contacts_page_from_response
 from frontend.finance_service import finance_dashboard_from_transactions
 from frontend.overview_service import (
     overview_metrics,
@@ -266,6 +269,46 @@ class OverviewServiceTests(unittest.TestCase):
         )
 
         self.assertEqual(result, [])
+
+    def test_overview_loader_includes_future_confirmed_appointments(self):
+        now = datetime.now(SAO_PAULO).replace(microsecond=0)
+        start_at = now + timedelta(hours=1)
+
+        class OverviewState:
+            role = "admin"
+            user_id = 1
+            overview_appointments_loading = False
+            overview_appointments_error = ""
+            overview_appointments = []
+
+            async def _request(
+                self,
+                method,
+                path,
+                error_context,
+                query_params,
+            ):
+                return httpx.Response(
+                    200,
+                    json={
+                        "data": {
+                            "items": [
+                                {
+                                    "status": "confirmed",
+                                    "start_at": start_at.isoformat(),
+                                    "contact_name": "Ana Souza",
+                                    "services_snapshot": [{"name": "Corte"}],
+                                }
+                            ]
+                        }
+                    },
+                )
+
+        state = OverviewState()
+        asyncio.run(AuthState._load_overview_appointments(state))
+
+        self.assertEqual(len(state.overview_appointments), 1)
+        self.assertEqual(state.overview_appointments[0]["contact_name"], "Ana Souza")
 
 
 if __name__ == "__main__":

@@ -18,13 +18,15 @@ capabilities atuais para os contratos de domínio que devem ser preservados.
   inclusive por chamadas diretas às APIs.
 - Preservar todos os dados e relacionamentos já existentes sem exigir uma
   atualização em massa antes de habilitar o cadastro.
+- Restringir a carteira de clientes por profissional e permitir expediente
+  semanal compartilhado configurado pelo administrador.
 
 **Non-Goals:**
 
 - Implementar filiais ou hierarquia de organizações.
 - Criar cobrança, planos, aprovação manual ou portal para clientes.
-- Alterar as regras funcionais atuais de agenda, serviços, contatos ou
-  financeiro além de aplicar o escopo da barbearia.
+- Alterar as regras do catálogo de serviços ou o comportamento dos relatórios
+  financeiros compartilhados.
 - Permitir que o frontend escolha o identificador da barbearia que autoriza
   uma operação.
 
@@ -68,9 +70,37 @@ quando pertencem à mesma barbearia. Uma tentativa com ID de outro tenant é
 rejeitada sem revelar seus dados.
 
 O papel `admin` concede gestão da equipe e dados somente dentro da própria
-barbearia. Profissionais mantêm as permissões atuais, também limitadas ao
-tenant. A restrição atual de um administrador global é substituída por
-administradores locais; não existe papel de suporte global nesta Change.
+barbearia. Profissionais podem consultar a lista da equipe da própria
+barbearia em modo somente leitura; operações de criação e manutenção de membros
+continuam restritas a `admin`. As demais permissões profissionais continuam
+limitadas ao tenant. A restrição atual de um administrador global é substituída
+por administradores locais; não existe papel de suporte global nesta Change.
+
+### Carteira de clientes por profissional
+
+Adicionar `professional_id` opcional aos contatos. O administrador pode manter
+contatos sem responsável ou atribuí-los a um profissional ativo da mesma
+barbearia. A listagem padrão e as mutações de contato de um profissional são
+restritas aos registros atribuídos ao próprio usuário; novos contatos criados
+por profissionais recebem essa atribuição no backend. Contatos legados e
+criados por administradores sem atribuição permanecem administrativos.
+
+O fluxo de agendamento permanece mais amplo: administradores e profissionais
+podem selecionar contatos ativos do próprio tenant para compromissos de agendas
+que podem gerir, sem que isso permita alterar o cadastro do contato. Movimentações
+vinculadas a um contato são criadas, editadas ou estornadas por profissionais
+somente quando o contato pertence à carteira deles; o administrador mantém o
+escopo financeiro existente dentro do tenant.
+
+### Expediente semanal por barbearia
+
+Persistir `weekly_hours` no registro da barbearia como sete dias, cada um com
+zero ou mais pares de minutos desde a meia-noite. O administrador gerencia a
+configuração em Agenda; todos os membros leem o mesmo expediente. Os intervalos
+devem usar grade de 30 minutos, estar ordenados e não se sobrepor. APIs de
+agendamento e bloqueio obtêm os horários do tenant autenticado e validam a
+operação no backend. A barbearia legada mantém o expediente codificado atual
+enquanto não houver configuração salva; novos cadastros começam sem intervalos.
 
 ### Signup cria organização e proprietário
 
