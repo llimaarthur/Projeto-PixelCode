@@ -370,3 +370,35 @@ pertencem à mesma barbearia.
 - **WHEN** um agendamento confirmado é concluído
 - **THEN** uma receita ativa com o valor do agendamento é registrada uma única
   vez e vinculada ao cliente e ao agendamento
+
+### Requirement: Isolar cache financeiro entre sessões
+
+O frontend SHALL limpar os dados financeiros em memória derivados da sessão
+autenticada ao encerrar essa sessão. Uma sessão subsequente SHALL carregar do
+backend os próprios dados antes de apresentar opções de clientes, serviços ou
+movimentações.
+
+#### Scenario: Trocar de conta ou barbearia
+
+- **WHEN** a sessão autenticada é encerrada e outra conta inicia sessão no
+  mesmo cliente
+- **THEN** opções e dados financeiros da sessão anterior não são apresentados
+  nem enviados pela interface
+
+#### Scenario: Recarregar o Financeiro após a troca
+
+- **WHEN** a nova sessão abre o Financeiro
+- **THEN** o painel e as opções do formulário são carregados novamente usando
+  a sessão autenticada atual
+
+### Requirement: Validar data de movimentação pela API
+
+A validação de data futura SHALL usar o relógio da API financeira como fonte
+autoritativa. A interface SHALL enviar a data convertida no fuso da barbearia
+e SHALL apresentar a rejeição da API sem indicar sucesso.
+
+#### Scenario: API rejeita movimentação com data futura
+
+- **WHEN** a API financeira considera a data enviada como futura
+- **THEN** a interface exibe a mensagem amigável retornada pela API e não
+  registra a movimentação como sucesso

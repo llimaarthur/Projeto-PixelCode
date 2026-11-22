@@ -1186,6 +1186,65 @@ class AuthState(rx.State):
             self.error_message = f"Não foi possível conectar ao {error_context}."
             return None
 
+    def _clear_finance_state(self):
+        self.finance_kpis = []
+        self.finance_dashboard_loaded = False
+        self.finance_kpis_loading = False
+        self.finance_kpis_error = ""
+        self.finance_cashflow = {}
+        self.finance_period = "6m"
+        self.finance_chart_points = []
+        self.finance_chart_y_ticks = []
+        self.finance_chart_inflow_path = ""
+        self.finance_chart_outflow_path = ""
+        self.finance_chart_inflow_area = ""
+        self.finance_chart_outflow_area = ""
+        self.finance_chart_loading = False
+        self.finance_chart_error = ""
+        self.finance_chart_active_index = -1
+        self.finance_summary = {}
+        self.finance_summary_empty = True
+        self.finance_summary_loading = False
+        self.finance_summary_error = ""
+        self.finance_transactions = []
+        self.finance_transactions_loading = False
+        self.finance_transactions_error = ""
+        self.finance_transactions_total = 0
+        self.finance_transactions_page = 1
+        self.finance_has_cancelled_transactions = False
+        self.finance_show_cancelled_transactions = False
+        self.finance_api_available = False
+        self.finance_mock_mode = False
+        self.finance_contacts = []
+        self.finance_services = []
+        self.finance_appointment_options = []
+        self.finance_appointment_options_loading = False
+        self.finance_form_options_loading = False
+        self.finance_form_options_loaded = False
+        self.finance_form_options_error = ""
+        self.finance_form_open = False
+        self.finance_form_type = "income"
+        self.finance_form_mode = "create"
+        self.finance_form_transaction_id = 0
+        self.finance_form_title = ""
+        self.finance_form_detail = ""
+        self.finance_form_amount = ""
+        self.finance_form_occurred_at = ""
+        self.finance_form_contact_id = 0
+        self.finance_form_contact_option = "Selecione um cliente..."
+        self.finance_form_service_option = "Selecione um serviço..."
+        self.finance_form_service_ids = []
+        self.finance_form_appointment_id = 0
+        self.finance_form_appointment_option = "Sem vínculo de agendamento"
+        self.finance_form_confirming = False
+        self.finance_form_error = ""
+        self.finance_form_success_message = ""
+        self.finance_form_submitting = False
+        self.finance_cancel_transaction_id = 0
+        self.finance_cancel_reason = ""
+        self.finance_cancel_error = ""
+        self.finance_cancel_submitting = False
+
     def _clear_session(self):
         self._auth_token = ""
         self.display_name = ""
@@ -1213,6 +1272,7 @@ class AuthState(rx.State):
         self.profile_password_success = ""
         self.profile_password_submitting = False
         self.profile_editor_open = False
+        self._clear_finance_state()
         self.overview_period = "30d"
         self.overview_period_error = ""
         self.overview_finance_transactions = []
@@ -1349,7 +1409,10 @@ class AuthState(rx.State):
         )
         login_profile = user_payload or profile_payload or data_payload or result
 
-        self._auth_token = str(token) if token not in (None, "") else ""
+        new_auth_token = str(token) if token not in (None, "") else ""
+        if self._auth_token != new_auth_token:
+            self._clear_finance_state()
+        self._auth_token = new_auth_token
         self.display_name = str(
             _first_matching_value(login_profile, "name", "display_name") or ""
         )
@@ -2482,9 +2545,6 @@ class AuthState(rx.State):
         if occurred_at.tzinfo is None:
             occurred_at = occurred_at.replace(tzinfo=BARBERSHOP_TIMEZONE)
         occurred_at = occurred_at.astimezone(BARBERSHOP_TIMEZONE)
-        if occurred_at > datetime.now(BARBERSHOP_TIMEZONE):
-            self.finance_form_error = "A data da movimentação não pode estar no futuro."
-            return
 
         if is_edit and not self.finance_form_confirming:
             self.finance_form_confirming = True
